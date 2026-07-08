@@ -47,11 +47,7 @@
   button.primary:hover { filter: brightness(1.05); }
   button.icon { padding: 7px 9px; }
   button:disabled { opacity: .5; cursor: not-allowed; }
-  .static-note { color: var(--muted); font-size: 12px; }
-  .reqbar { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
-  .reqbar input { font: inherit; padding: 6px 9px; border: 1px solid var(--border);
-    border-radius: 7px; min-width: 220px; }
-  .reqbar a, #reqissue { text-decoration: none; }
+  #reqissue { text-decoration: none; }
   main { flex: 1; display: flex; min-height: 0; }
   aside {
     width: 340px; min-width: 280px; border-right: 1px solid var(--border);
@@ -145,11 +141,6 @@
     <button id="full" title="Render the Compare commit as a plain PDF, no diff markup">Full PDF</button>
     <button id="reqissue" hidden title="Open a GitHub issue that builds this diff in CI">Request diff ↗</button>
   </div>
-  <div class="reqbar" id="reqbar" hidden>
-    <input id="reqpair" placeholder="base..compare — e.g. v1..HEAD">
-    <button id="reqbtn">Request diff ↗</button>
-    <span class="static-note">rendered from CI · request builds new ones</span>
-  </div>
 </header>
 <main>
   <aside>
@@ -211,13 +202,6 @@ function requestDiff(base, head) {
   if (!REPO_FULL) { toast("No GitHub repo configured"); return; }
   if (!base || !head || base === head) { toast("Enter base..compare"); return; }
   window.open(issueUrl(base, head), "_blank");
-}
-
-function reqFromInput() {
-  const v = ($("#reqpair").value || "").trim();
-  if (!v.includes("..")) { toast("Use base..compare"); return; }
-  const [b, h] = v.split("..");
-  requestDiff(b, h);
 }
 
 // Static picker action: view the pair if it's already built, else open an issue.
@@ -291,24 +275,53 @@ async function loadCommits() {
   fillCommitSelects();
 }
 
-// Static (Pages) mode has no backend, but a public repo's commits are available
-// from the GitHub REST API (CORS-enabled, no auth) — so the picker still works.
-async function loadCommitsFromGitHub(repoFull) {
+// Static (Pages) mode has no backend, but a public repo's commits, branches and
+// tags are all available from the GitHub REST API (CORS-enabled, no auth) — so
+// the picker can reference any of them.
+let BRANCHES = [], TAGS = [];
+async function loadRefsFromGitHub(repoFull) {
+  const gh = p => fetch(`https://api.github.com/repos/${repoFull}/${p}`,
+    { headers: { "Accept": "application/vnd.github+json" } });
   try {
-    const r = await fetch(`https://api.github.com/repos/${repoFull}/commits?per_page=100`,
-      { headers: { "Accept": "application/vnd.github+json" } });
-    if (!r.ok) return false;
-    const data = await r.json();
-    if (!Array.isArray(data) || !data.length) return false;
-    commits = data.map(c => ({
+    const [rc, rb, rt] = await Promise.all([
+      gh("commits?per_page=100"), gh("branches?per_page=100"), gh("tags?per_page=100"),
+    ]);
+    if (!rc.ok) return false;
+    const cd = await rc.json();
+    if (!Array.isArray(cd) || !cd.length) return false;
+    commits = cd.map(c => ({
       hash: c.sha, short: c.sha.slice(0, 7),
       subject: ((c.commit && c.commit.message) || "").split("\n")[0],
       date: (((c.commit && c.commit.author && c.commit.author.date)) || "")
               .slice(0, 16).replace("T", " "),
     }));
-    fillCommitSelects();
+    BRANCHES = rb.ok ? (await rb.json()).map(b => b.name) : [];
+    TAGS = rt.ok ? (await rt.json()).map(t => t.name) : [];
+    fillRefSelects();
     return true;
   } catch (e) { return false; }
+}
+
+function fillRefSelects() {
+  const group = (sel, label, items) => {
+    if (!items.length) return;
+    const g = document.createElement("optgroup"); g.label = label;
+    for (const it of items) {
+      const o = document.createElement("option");
+      o.value = it.value; o.textContent = it.label; g.appendChild(o);
+    }
+    sel.appendChild(g);
+  };
+  for (const sel of [$("#base"), $("#compare")]) {
+    sel.innerHTML = "";
+    group(sel, "Branches", BRANCHES.map(n => ({ value: n, label: n })));
+    group(sel, "Tags", TAGS.map(n => ({ value: n, label: n })));
+    group(sel, "Commits", commits.map(c => ({ value: c.short, label: optionLabel(c) })));
+  }
+  if (commits.length >= 2) {
+    $("#compare").value = commits[0].short;
+    $("#base").value = commits[1].short;
+  }
 }
 
 // ---- rendering (shared by both modes) -------------------------------------
@@ -529,7 +542,6 @@ function handleDiffParam() {
   const m = findDiff(want);
   if (m) { view(m); return; }
   const [b, h] = want.split("..");
-  if ($("#reqpair")) $("#reqpair").value = want;
   showRequestPrompt(b, h);
 }
 
@@ -541,7 +553,7 @@ async function init() {
     // Prefer a real base/compare picker (commits from the GitHub API); fall back
     // to a plain "base..compare" text box if that's unavailable (e.g. private repo
     // or rate-limited).
-    const picker = REPO_FULL ? await loadCommitsFromGitHub(REPO_FULL) : false;
+    const picker = REPO_FULL ? await loadRefsFromGitHub(REPO_FULL) : false;
     if (picker) {
       $("#controls").hidden = false;
       $("#gen").hidden = true; $("#full").hidden = true;
@@ -555,10 +567,6 @@ async function init() {
       $("#reqissue").addEventListener("click",
         () => requestOrView($("#base").value, $("#compare").value));
       updateDiffButton();
-    } else if (REPO_FULL) {
-      $("#reqbar").hidden = false;
-      $("#reqbtn").addEventListener("click", reqFromInput);
-      $("#reqpair").addEventListener("keydown", e => { if (e.key === "Enter") reqFromInput(); });
     }
     handleDiffParam();
   } else {
