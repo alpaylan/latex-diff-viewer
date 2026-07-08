@@ -22,20 +22,16 @@ on:
     types: [opened, edited]
 
 jobs:
-  # PR: comment + artifact (independent of Pages).
+  # PR: build base..head, publish it to the store viewer, comment a "View ↗" link
+  # (and upload an artifact fallback for fork PRs, which can't push to the store).
   diff:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    uses: alpaylan/latex-diff-viewer/.github/workflows/pr-diff.yml@v1
     permissions:
-      contents: read
+      contents: write
       pull-requests: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: alpaylan/latex-diff-viewer@v1
-        with:
-          config: difftool.toml
+    with:
+      config: difftool.toml
 
   # push to main: keep recent-history diffs in the store viewer.
   seed:

@@ -96,6 +96,10 @@ A repo can have **one** Pages source, so pick one:
   both append to it**, so they show in one viewer. Set Settings → Pages → *Deploy
   from a branch* → `latexdiff-store`. Wire it with one file —
   [`examples/consumer.yml`](examples/consumer.yml) — combining:
+  - `pr-diff.yml` on **pull_request**: builds base→head, publishes it to the store,
+    and comments a **"View the diff ↗"** link (with an artifact fallback for fork
+    PRs, which can't push to the store) — so PR diffs render in the viewer, no
+    artifact download needed.
   - `store-seed.yml` on **push**: pre-builds the last `pages_recent` commits' diffs.
   - `issue-diff.yml` on **issues**: an issue titled `latexdiff <base>..<head>` builds
     that diff on demand, comments a viewer link, and closes the issue. The viewer's

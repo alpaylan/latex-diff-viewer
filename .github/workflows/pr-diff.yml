@@ -1,0 +1,145 @@
+name: LaTeX diff (PR)
+
+# Reusable workflow: on a pull request, build the base..head diff, publish it to
+# the `latexdiff-store` branch (so it renders in the Pages viewer), and comment a
+# viewer link on the PR. The diff PDF is also uploaded as an artifact fallback —
+# which is what a fork PR gets, since forked PRs have a read-only token and can't
+# push to the store branch.
+#
+# Caller (.github/workflows in your repo):
+#   on:
+#     pull_request:
+#   jobs:
+#     diff:
+#       uses: alpaylan/latex-diff-viewer/.github/workflows/pr-diff.yml@v1
+#       permissions:
+#         contents: write        # push the diff to the store branch
+#         pull-requests: write   # comment on the PR
+
+on:
+  workflow_call:
+    inputs:
+      config:        { type: string, default: "difftool.toml" }
+      image:         { type: string, default: "ghcr.io/alpaylan/latex-diff-viewer:v1" }
+      store_branch:  { type: string, default: "latexdiff-store" }
+      retain:        { type: number, default: 50 }
+      artifact_name: { type: string, default: "latex-diff" }
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: latexdiff-store-${{ github.repository }}-${{ inputs.store_branch }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build diff + publish to store (refetch/retry on concurrent pushes)
+        id: build
+        env:
+          IMAGE:  ${{ inputs.image }}
+          CONFIG: ${{ inputs.config }}
+          BASE:   ${{ github.event.pull_request.base.sha }}
+          HEAD:   ${{ github.event.pull_request.head.sha }}
+          RETAIN: ${{ inputs.retain }}
+          STORE:  ${{ inputs.store_branch }}
+        run: |
+          set -uo pipefail
+          git config --global --add safe.directory '*'
+          docker pull -q "$IMAGE" || true
+          out="$GITHUB_WORKSPACE/latexdiff-out"; mkdir -p "$out"
+
+          prepare() {
+            git worktree remove --force "$RUNNER_TEMP/store" 2>/dev/null || true
+            rm -rf "$RUNNER_TEMP/store"; git worktree prune
+            git fetch origin "$STORE" || true
+            if git show-ref --verify --quiet "refs/remotes/origin/$STORE"; then
+              git worktree add -B "$STORE" "$RUNNER_TEMP/store" "origin/$STORE"
+            else
+              git worktree add --detach "$RUNNER_TEMP/store" HEAD
+              git -C "$RUNNER_TEMP/store" checkout --orphan "$STORE"
+              git -C "$RUNNER_TEMP/store" rm -rf . >/dev/null 2>&1 || true
+            fi
+          }
+
+          published=false
+          for attempt in 1 2 3 4 5; do
+            prepare
+            docker run --rm \
+              -v "$GITHUB_WORKSPACE:/w" -w /w \
+              -v "$RUNNER_TEMP/store:/store" \
+              -e CI=true -e GITHUB_OUTPUT=/dev/null \
+              -e GITHUB_REPOSITORY="${{ github.repository }}" \
+              "$IMAGE" store-add --config "$CONFIG" \
+                --old "$BASE" --new "$HEAD" --store /store --retain "$RETAIN" \
+                > "$RUNNER_TEMP/store.json" || true
+            sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/store" || true
+            cat "$RUNNER_TEMP/store.json" || true
+            okb=$(python3 -c 'import json;print(json.load(open("'"$RUNNER_TEMP"'/store.json")).get("ok",False))' 2>/dev/null || echo False)
+            if [ "$okb" != "True" ]; then break; fi
+            (
+              cd "$RUNNER_TEMP/store"
+              git add -A
+              git -c user.email='bot@latex-diff-viewer' -c user.name='latex-diff-viewer' \
+                commit -q -m "diff for PR #${{ github.event.pull_request.number }}" || exit 3
+              git push origin "HEAD:$STORE"
+            )
+            rc=$?
+            if [ "$rc" -eq 0 ] || [ "$rc" -eq 3 ]; then published=true; break; fi
+            echo "::warning::store push rejected (attempt $attempt) — retrying"
+            sleep $((attempt * 2))
+          done
+
+          j() { python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get(sys.argv[2],""))' "$RUNNER_TEMP/store.json" "$1" 2>/dev/null; }
+          pdf=$(j pdf)
+          [ -n "$pdf" ] && [ -f "$RUNNER_TEMP/store/$pdf" ] && cp "$RUNNER_TEMP/store/$pdf" "$out/diff.pdf" || true
+          { echo "ok=$(j ok)"; echo "id=$(j id)"; echo "changed_pages=$(j changed_pages)"; echo "published=$published"; } >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact (fallback)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ github.workspace }}/latexdiff-out/*.pdf
+          if-no-files-found: ignore
+
+      - name: Comment on the PR
+        if: ${{ always() }}
+        uses: actions/github-script@v7
+        env:
+          OK: ${{ steps.build.outputs.ok }}
+          PUBLISHED: ${{ steps.build.outputs.published }}
+          DIFF_ID: ${{ steps.build.outputs.id }}
+          CHANGED: ${{ steps.build.outputs.changed_pages }}
+          ARTIFACT: ${{ inputs.artifact_name }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const prNum = context.payload.pull_request.number;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const ok = process.env.OK === 'True';
+            const published = process.env.PUBLISHED === 'true';
+            const id = process.env.DIFF_ID || '';
+            const marker = '<!-- ldv-pr -->';
+            let msg;
+            if (ok && published) {
+              const url = `https://${owner}.github.io/${repo}/?diff=${encodeURIComponent(id)}`;
+              msg = `✅ Built \`${id}\` — **${process.env.CHANGED} changed page(s)**.\n\n`
+                + `**[View the diff ↗](${url})**  ·  or download the **${process.env.ARTIFACT}** `
+                + `artifact from the [run](${runUrl}).\n\n<sub>Pages may take a minute to refresh.</sub>`;
+            } else if (ok) {
+              msg = `✅ Built \`${id}\` — **${process.env.CHANGED} changed page(s)**. `
+                + `Couldn't publish to the viewer (fork PRs can't push to the store) — `
+                + `download the **${process.env.ARTIFACT}** artifact from the [run](${runUrl}).`;
+            } else {
+              msg = `❌ Couldn't build the diff. See the [run log](${runUrl}).`;
+            }
+            const body = `${marker}\n### 📄 LaTeX diff\n${msg}`;
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number: prNum });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment({ owner, repo, issue_number: prNum, body });
