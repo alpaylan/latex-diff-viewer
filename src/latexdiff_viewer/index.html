@@ -115,7 +115,8 @@
     header h1 { font-size: 14px; }
     header h1 .sub { display: none; }
     .legend { display: none; }
-    .only-mobile { display: inline-block; }
+    /* :not([hidden]) so JS setting `hidden` actually hides the button */
+    .only-mobile:not([hidden]) { display: inline-block; }
     aside, .changes {
       position: absolute; top: 0; bottom: 0; height: 100%; max-width: 86vw;
       transition: transform .22s ease; box-shadow: 0 0 24px rgba(0,0,0,.28);
@@ -132,10 +133,10 @@
 </head>
 <body>
 <header>
-  <button class="only-mobile" id="tg-diffs" title="Diffs">☰</button>
+  <button class="only-mobile" id="tg-diffs" title="Diffs">☰ Diffs</button>
   <h1>LaTeX diff viewer <span class="sub" id="project">git-latexdiff</span></h1>
   <div class="legend"><span class="ins">added</span><span class="del">removed</span></div>
-  <button class="only-mobile" id="tg-pages" hidden title="Changed pages">Pages</button>
+  <button class="only-mobile" id="tg-pages" hidden title="Changed pages">Changes</button>
 </header>
 <main>
   <aside id="aside">
@@ -458,8 +459,8 @@ function renderChanges(d) {
   const items = (d && d.kind !== "full" && d.changes) ? d.changes : [];
   panel.classList.toggle("empty", items.length === 0);
   tg.hidden = items.length === 0;
-  if (!items.length) { panel.innerHTML = ""; return; }
-  tg.textContent = `Pages (${items.length})`;
+  if (!items.length) { panel.innerHTML = ""; panel.classList.remove("open"); return; }
+  tg.textContent = `Changes (${items.length})`;
   const SYM = { add: "+", del: "−", both: "±" };
   let html = `<h3>Changed pages (${items.length})</h3>`;
   for (const c of items) html += `<div class="chg ${esc(c.type)}" data-page="${c.abspage}" title="Jump to page ${esc(String(c.page))}"><span class="sym">${SYM[c.type] || "+"}</span><span>Page ${esc(String(c.page))}</span></div>`;
