@@ -36,9 +36,13 @@ def _repo_full() -> str:
 
 
 def add_diff(cfg: _config.Config, store_dir: str, base_ref: str, head_ref: str,
-             retain: int = 50, on_line=None) -> dict:
+             retain: int = 50, on_line=None, skip_existing: bool = True) -> dict:
     """Build one diff and merge it into `store_dir` (manifest + PDF), pruning to
-    the `retain` most-recent diffs. Returns a JSON-able result dict."""
+    the `retain` most-recent diffs. Returns a JSON-able result dict.
+
+    When skip_existing is set (the default), an already-built diff for the same
+    pair is returned as-is without rebuilding — so concurrent/duplicate requests
+    for the same diff don't each trigger a build."""
     os.makedirs(store_dir, exist_ok=True)
     try:
         core.ensure_ref(cfg.repo_root, base_ref)
@@ -47,6 +51,16 @@ def add_diff(cfg: _config.Config, store_dir: str, base_ref: str, head_ref: str,
         n = core.commit_info(cfg.repo_root, head_ref)
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"could not resolve {base_ref}..{head_ref}: {exc}"}
+
+    diff_id = f"{o['short']}..{n['short']}"
+    if skip_existing:
+        for d in load_manifest(store_dir).get("diffs", []):
+            if d.get("id") == diff_id and d.get("pdf") \
+                    and os.path.exists(os.path.join(store_dir, d["pdf"])):
+                if on_line:
+                    on_line(f"[store] {diff_id} already built — skipping rebuild")
+                return {"ok": True, "id": diff_id, "pdf": d["pdf"], "existing": True,
+                        "changed_pages": len(d.get("changes", [])), "kept": None}
 
     name = f"diff_{_safe(o['short'])}__{_safe(n['short'])}.pdf"
     res = core.build_diff(cfg, o["hash"], n["hash"],
