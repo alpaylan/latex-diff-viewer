@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LaTeX diff viewer</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --border: #e2e5ea;
+    --ink: #1f2329;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --accent-ink: #ffffff;
+    --add: #1a7f37;
+    --del: #cf222e;
+    --building: #9a6700;
+    --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.1);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--ink); background: var(--bg);
+    display: flex; flex-direction: column;
+  }
+  header {
+    background: var(--panel); border-bottom: 1px solid var(--border);
+    padding: 10px 18px; display: flex; align-items: center; gap: 14px;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 650; letter-spacing: .2px; }
+  header h1 .sub { color: var(--muted); font-weight: 400; margin-left: 8px; font-size: 13px; }
+  .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+  select {
+    font: inherit; padding: 6px 8px; border: 1px solid var(--border);
+    border-radius: 7px; background: #fff; color: var(--ink); max-width: 360px;
+  }
+  .lbl { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
+  button {
+    font: inherit; font-weight: 600; padding: 7px 12px; border-radius: 7px;
+    border: 1px solid var(--border); background: #fff; color: var(--ink); cursor: pointer;
+  }
+  button:hover { background: #f0f2f5; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button.primary:hover { filter: brightness(1.05); }
+  button.icon { padding: 7px 9px; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .static-note { margin-left: auto; color: var(--muted); font-size: 12px; }
+  main { flex: 1; display: flex; min-height: 0; }
+  aside {
+    width: 340px; min-width: 280px; border-right: 1px solid var(--border);
+    background: var(--panel); overflow-y: auto; padding: 12px;
+  }
+  aside h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--muted); margin: 4px 4px 10px;
+  }
+  .changes { width: 232px; min-width: 200px; border-right: 1px solid var(--border);
+    background: var(--panel); overflow-y: auto; padding: 10px; }
+  .changes h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--muted); margin: 2px 2px 10px; }
+  .chg { display: flex; align-items: baseline; gap: 7px; padding: 6px 8px;
+    border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .chg:hover { background: #f0f2f5; }
+  .chg .sym { font-weight: 800; width: 10px; text-align: center; }
+  .chg.add .sym { color: var(--add); }
+  .chg.del .sym { color: var(--del); }
+  .chg.both .sym { color: #6f42c1; }
+  .chg .pg { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .changes .none { color: var(--muted); font-size: 12px; padding: 8px; }
+  .viewer { flex: 1; min-width: 0; background: #525659; position: relative; }
+  .viewer iframe { width: 100%; height: 100%; border: 0; }
+  .viewer .empty {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: #cbd0d6; text-align: center; padding: 24px; flex-direction: column; gap: 8px;
+  }
+  .card {
+    border: 1px solid var(--border); border-radius: 9px; padding: 10px 11px;
+    margin-bottom: 9px; background: #fff; cursor: pointer; box-shadow: var(--shadow);
+    transition: border-color .12s;
+  }
+  .card:hover { border-color: #c5cbd3; }
+  .card.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(37,99,235,.15); }
+  .card.current { background: linear-gradient(180deg,#f5f8ff,#fff); border-color: #c7d6f7; }
+  #current h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--muted); margin: 4px 4px 10px; }
+  .card .row1 { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+  .badge {
+    font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 20px;
+    text-transform: uppercase; letter-spacing: .3px;
+  }
+  .badge.done { background: #e7f5ec; color: var(--add); }
+  .badge.building, .badge.queued { background: #fff5d9; color: var(--building); }
+  .badge.error { background: #fde8e8; color: var(--del); }
+  .card .pair { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--ink); }
+  .card .subj { color: var(--muted); font-size: 12px; margin-top: 3px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .subj.big { color: var(--ink); font-size: 13px; font-weight: 600; margin-top: 6px; }
+  .card .subj.sub { margin-top: 2px; }
+  .kind { font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase;
+    padding: 2px 6px; border-radius: 5px; margin-left: auto; }
+  .kind.diff { background: #eef2ff; color: #3949ab; }
+  .kind.full { background: #eef7ee; color: #2e7d32; }
+  .card .meta { color: var(--muted); font-size: 11px; margin-top: 5px; display: flex; gap: 8px; }
+  .card .err { color: var(--del); font-size: 12px; margin-top: 6px; white-space: pre-wrap;
+    font-family: ui-monospace, monospace; max-height: 80px; overflow: auto; }
+  .card .actions { margin-top: 7px; display: flex; gap: 6px; }
+  .card .actions button { padding: 3px 8px; font-size: 12px; }
+  .spinner {
+    width: 12px; height: 12px; border: 2px solid #e8d9a0; border-top-color: var(--building);
+    border-radius: 50%; display: inline-block; animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .legend { display: flex; gap: 14px; align-items: center; font-size: 12px; color: var(--muted); }
+  .legend .ins { color: var(--add); font-weight: 600; }
+  .legend .del { color: var(--del); font-weight: 600; text-decoration: line-through; }
+  .empty-list { color: var(--muted); font-size: 13px; padding: 10px 4px; }
+  #toast {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    background: #1f2329; color: #fff; padding: 9px 16px; border-radius: 8px;
+    font-size: 13px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 50;
+  }
+  #toast.show { opacity: .96; }
+</style>
+</head>
+<body>
+<header>
+  <h1>LaTeX diff viewer <span class="sub" id="project">git-latexdiff</span></h1>
+  <div class="legend">
+    <span class="ins">added</span><span class="del">removed</span>
+  </div>
+  <div class="controls" id="controls" hidden>
+    <span class="lbl">Base</span>
+    <select id="base"></select>
+    <button class="icon" id="swap" title="Swap base / compare">⇄</button>
+    <span class="lbl">Compare</span>
+    <select id="compare"></select>
+    <button class="primary" id="gen">Generate diff</button>
+    <button id="full" title="Render the Compare commit as a plain PDF, no diff markup">Full PDF</button>
+  </div>
+  <div class="static-note" id="static-note" hidden>Pre-generated diffs · published from CI</div>
+</header>
+<main>
+  <aside>
+    <div id="current"></div>
+    <h2>Diffs</h2>
+    <div id="list"></div>
+  </aside>
+  <nav class="changes" id="changes" hidden></nav>
+  <section class="viewer">
+    <iframe id="pdf" style="display:none"></iframe>
+    <div class="empty" id="viewer-empty">
+      <div style="font-size:32px">📄</div>
+      <div>Pick a diff on the left to view it.<br>
+      <span style="opacity:.8">When viewing a diff, a <b>Changes</b> list appears —
+      click any entry to jump straight to it.</span></div>
+    </div>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let commits = [];
+let activeId = null;
+let currentPdfBase = null;
+let pollTimer = null;
+let autoViewed = false;
+let STATIC = false;         // true when served as a static GitHub Pages site
+let MANIFEST = null;        // the manifest.json in static mode
+
+function toast(msg) {
+  const t = $("#toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2600);
+}
+
+function optionLabel(c) { return `${c.date}  ·  ${c.subject}`; }
+
+// In live mode the server streams the PDF at /pdf/<id>; in static mode each
+// diff carries its own filename sitting next to index.html.
+function pdfUrl(d) { return STATIC ? d.pdf : "/pdf/" + encodeURIComponent(d.id); }
+
+function esc(s) {
+  return (s || "").replace(/[&<>"]/g, c =>
+    ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;" }[c]));
+}
+
+// ---- data source (live server vs static manifest) -------------------------
+
+async function fetchDiffs() {
+  if (STATIC) return (MANIFEST && MANIFEST.diffs) || [];
+  const r = await fetch("/api/diffs");
+  const data = await r.json();
+  return data.diffs || [];
+}
+
+async function loadCommits() {
+  const r = await fetch("/api/commits");
+  const data = await r.json();
+  if (data.error) { toast("git log failed"); return; }
+  commits = data.commits;
+  const base = $("#base"), compare = $("#compare");
+  base.innerHTML = ""; compare.innerHTML = "";
+  for (const c of commits) {
+    const o1 = document.createElement("option");
+    o1.value = c.short; o1.textContent = optionLabel(c); base.appendChild(o1);
+    const o2 = o1.cloneNode(true); compare.appendChild(o2);
+  }
+  if (commits.length >= 2) {
+    compare.value = commits[0].short;
+    base.value = commits[1].short;
+  }
+}
+
+// ---- rendering (shared by both modes) -------------------------------------
+
+function renderList(diffs) {
+  const list = $("#list");
+  if (!diffs.length) {
+    list.innerHTML = '<div class="empty-list">No diffs yet.'
+      + (STATIC ? '' : ' Generate one above.') + '</div>';
+    return;
+  }
+  list.innerHTML = "";
+  for (const d of diffs) {
+    const card = document.createElement("div");
+    card.className = "card" + (d.id === activeId ? " active" : "");
+    const building = d.status === "building" || d.status === "queued";
+    const spin = building ? '<span class="spinner"></span> ' : "";
+    const full = d.kind === "full";
+
+    const title = full ? (d.subject || "Full PDF") : (d.new_subject || "Compare");
+    const line2 = full
+      ? `📅 ${esc(d.date || "")}`
+      : `↤ vs ${esc(d.old_subject || "")}${d.old_date ? " · " + esc(d.old_date) : ""}`;
+    const stamp = full ? "" : (d.new_date || "");
+
+    let inner = `
+      <div class="row1">
+        <span class="badge ${d.status}">${spin}${d.status}</span>
+        <span class="kind ${full ? "full" : "diff"}">${full ? "full pdf" : "diff"}</span>
+      </div>
+      <div class="subj big" title="${esc(title)}">${esc(title)}</div>
+      <div class="subj sub">${line2}</div>
+      <div class="meta">
+        ${stamp ? `<span>${esc(stamp)}</span>` : ""}
+        ${d.elapsed ? `<span>⏱ ${d.elapsed}s</span>` : ""}
+        ${d.changes && d.changes.length ? `<span>${d.changes.length} changed pp.</span>` : ""}
+      </div>`;
+    if (d.status === "error" && d.error) {
+      inner += `<div class="err">${esc(d.error)}</div>`;
+      if (d.log_tail) inner += `<div class="err">${esc(d.log_tail.split("\n").slice(-8).join("\n"))}</div>`;
+    }
+    inner += `<div class="actions">`;
+    if (d.status === "done") {
+      inner += `<button data-act="view">View</button>
+                <button data-act="tab">Open ↗</button>`;
+    }
+    if (!STATIC && d.status === "error") inner += `<button data-act="retry">Retry</button>`;
+    if (!STATIC) inner += `<button data-act="del">Delete</button>`;
+    inner += `</div>`;
+    card.innerHTML = inner;
+
+    card.addEventListener("click", e => {
+      const act = e.target.getAttribute("data-act");
+      if (act === "view" || (!act && d.status === "done")) { view(d); }
+      else if (act === "tab") { window.open(pdfUrl(d), "_blank"); }
+      else if (act === "retry") { d.kind === "full" ? generateFull(d.commit) : generate(d.old, d.new); }
+      else if (act === "del") { del(d.id); }
+    });
+    list.appendChild(card);
+  }
+}
+
+function view(d) {
+  activeId = d.id;
+  currentPdfBase = pdfUrl(d);
+  const f = $("#pdf");
+  f.src = currentPdfBase + "#view=FitH";
+  f.style.display = "block";
+  $("#viewer-empty").style.display = "none";
+  renderChanges(d);
+  if (!STATIC) refresh();
+  else renderAll(MANIFEST.diffs);
+}
+
+function renderCurrent(d) {
+  const el = $("#current");
+  if (!d) { el.innerHTML = ""; return; }
+  const building = d.status === "building" || d.status === "queued";
+  const spin = building ? '<span class="spinner"></span> ' : "";
+  const subj = d.subject || "latest commit";
+  let inner = `<h2>Current draft</h2>
+    <div class="card current ${d.id === activeId ? "active" : ""}" id="current-card" title="Full PDF of the latest commit">
+      <div class="row1">
+        <span class="badge ${d.status}">${spin}${d.status}</span>
+        <span class="kind full">full pdf</span>
+      </div>
+      <div class="subj big">📄 Latest draft</div>
+      <div class="subj sub">${esc(subj)}${d.date ? " · " + esc(d.date) : ""}</div>`;
+  if (d.status === "error" && d.error) inner += `<div class="err">${esc(d.error)}</div>`;
+  inner += `</div>`;
+  el.innerHTML = inner;
+  $("#current-card").addEventListener("click", () => { if (d.status === "done") view(d); });
+}
+
+function renderChanges(d) {
+  const panel = $("#changes");
+  const items = (d && d.kind !== "full" && d.changes) ? d.changes : [];
+  if (!items.length) { panel.hidden = true; panel.innerHTML = ""; return; }
+  panel.hidden = false;
+  const SYM = { add: "+", del: "−", both: "±" };
+  let html = `<h3>Changed pages (${items.length})</h3>`;
+  for (const c of items) {
+    html += `<div class="chg ${esc(c.type)}" data-page="${c.abspage}" title="Jump to page ${esc(String(c.page))}">
+      <span class="sym">${SYM[c.type] || "+"}</span>
+      <span>Page ${esc(String(c.page))}</span></div>`;
+  }
+  panel.innerHTML = html;
+  panel.querySelectorAll(".chg").forEach(el =>
+    el.addEventListener("click", () => jumpTo(el.getAttribute("data-page"))));
+}
+
+function jumpTo(page) {
+  if (currentPdfBase) $("#pdf").src = currentPdfBase + "#page=" + page;
+}
+
+function renderAll(all) {
+  const current = all.find(d => d.current);
+  renderCurrent(current);
+  renderList(all.filter(d => !d.current));
+  if (activeId) {
+    const cur = all.find(x => x.id === activeId);
+    if (cur) renderChanges(cur);
+  }
+  if (!autoViewed && !activeId && current && current.status === "done") {
+    autoViewed = true;
+    view(current);
+  }
+}
+
+// ---- live-mode actions ----------------------------------------------------
+
+async function refresh() {
+  const all = await fetchDiffs();
+  renderAll(all);
+  const anyBuilding = all.some(d => d.status === "building" || d.status === "queued");
+  if (anyBuilding && !pollTimer) {
+    pollTimer = setInterval(refresh, 1500);
+  } else if (!anyBuilding && pollTimer) {
+    clearInterval(pollTimer); pollTimer = null;
+  }
+}
+
+async function generate(old, neu) {
+  const base = old || $("#base").value;
+  const compare = neu || $("#compare").value;
+  if (base === compare) { toast("Pick two different commits"); return; }
+  $("#gen").disabled = true;
+  try {
+    const r = await fetch("/api/diff", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ old: base, new: compare }),
+    });
+    const data = await r.json();
+    if (data.error) { toast(data.error); return; }
+    toast("Build queued — compiling…");
+    await refresh();
+  } finally {
+    $("#gen").disabled = false;
+  }
+}
+
+async function generateFull(commit) {
+  const c = commit || $("#compare").value;
+  $("#full").disabled = true;
+  try {
+    const r = await fetch("/api/full", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ commit: c }),
+    });
+    const data = await r.json();
+    if (data.error) { toast(data.error); return; }
+    toast("Full PDF queued — compiling…");
+    await refresh();
+  } finally {
+    $("#full").disabled = false;
+  }
+}
+
+async function del(id) {
+  await fetch("/api/diff/" + encodeURIComponent(id), { method: "DELETE" });
+  if (id === activeId) {
+    activeId = null; currentPdfBase = null;
+    $("#pdf").style.display = "none";
+    $("#viewer-empty").style.display = "flex";
+    $("#changes").hidden = true;
+  }
+  refresh();
+}
+
+// ---- startup: detect live vs static ---------------------------------------
+
+async function detectMode() {
+  try {
+    const r = await fetch("/api/meta", { cache: "no-store" });
+    if (r.ok) {
+      const m = await r.json();
+      if (m && m.static !== true) {
+        $("#project").textContent = `${m.repo} · ${m.main}`;
+        return false;   // live
+      }
+    }
+  } catch (e) { /* no server -> static */ }
+  return true;          // static
+}
+
+async function loadManifest() {
+  const r = await fetch("manifest.json", { cache: "no-store" });
+  MANIFEST = await r.json();
+  const label = [MANIFEST.repo, MANIFEST.main].filter(Boolean).join(" · ");
+  if (label) $("#project").textContent = label;
+  $("#static-note").hidden = false;
+}
+
+async function init() {
+  STATIC = await detectMode();
+  if (STATIC) {
+    await loadManifest();
+    renderAll(MANIFEST.diffs || []);
+  } else {
+    $("#controls").hidden = false;
+    $("#gen").addEventListener("click", () => generate());
+    $("#full").addEventListener("click", () => generateFull());
+    $("#swap").addEventListener("click", () => {
+      const b = $("#base").value, c = $("#compare").value;
+      $("#base").value = c; $("#compare").value = b;
+    });
+    await loadCommits();
+    refresh();
+  }
+}
+
+init();
+</script>
+</body>
+</html>

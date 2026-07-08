@@ -1,0 +1,9 @@
+# Only the tool source belongs in the image.
+.git
+.github
+examples
+tests
+*.md
+difftool.example.toml
+**/__pycache__
+**/*.pyc

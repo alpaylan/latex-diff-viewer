@@ -1,0 +1,7 @@
+# Config for the self-test sample project. It builds into build/ (see latexmkrc),
+# which enables the changed-pages index.
+main          = "main.tex"
+build_dir     = "build"
+output_pdf    = "build/main.pdf"
+build_command = "latexmk -pdf -f -interaction=nonstopmode main.tex"
+pages_pairs   = ["HEAD~1..HEAD"]

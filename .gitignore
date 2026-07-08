@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+# Local run output / caches
+site/
+latexdiff-out/
+.latexdiff/
+build/
+*.pdf
+!examples/**/*.pdf

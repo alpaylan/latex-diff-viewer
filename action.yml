@@ -1,0 +1,187 @@
+name: "LaTeX Diff Viewer"
+description: "Build a git-latexdiff PDF between two commits and share it as a PR comment + artifact."
+author: "alpaylan"
+branding:
+  icon: "file-text"
+  color: "blue"
+
+inputs:
+  main:
+    description: "Main LaTeX file (overrides difftool.toml)."
+    required: false
+    default: ""
+  build_command:
+    description: "Full-build command (overrides difftool.toml)."
+    required: false
+    default: ""
+  build_dir:
+    description: "latexmk output directory (overrides difftool.toml)."
+    required: false
+    default: ""
+  latexdiff_options:
+    description: "Extra flags passed to git-latexdiff (space separated)."
+    required: false
+    default: ""
+  assets:
+    description: "Untracked asset globs to mirror into checkouts (comma/newline separated)."
+    required: false
+    default: ""
+  config:
+    description: "Path to a difftool.toml/json (relative to the repo)."
+    required: false
+    default: "difftool.toml"
+  base:
+    description: "Base ref to diff FROM. Defaults to the PR base."
+    required: false
+    default: ""
+  head:
+    description: "Compare ref to diff TO. Defaults to the PR head / current SHA."
+    required: false
+    default: ""
+  full:
+    description: "Also build a plain (no-diff) full PDF of the head commit."
+    required: false
+    default: "true"
+  comment:
+    description: "Post/update a comment on the PR with the result."
+    required: false
+    default: "true"
+  artifact_name:
+    description: "Name of the uploaded artifact."
+    required: false
+    default: "latex-diff"
+  image:
+    description: "Prebuilt tool image to run."
+    required: false
+    default: "ghcr.io/alpaylan/latex-diff-viewer:v1"
+  github_token:
+    description: "Token used to post the PR comment."
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  diff_pdf:
+    description: "Path to the generated diff PDF."
+    value: ${{ steps.build.outputs.diff_pdf }}
+  full_pdf:
+    description: "Path to the generated full PDF (if built)."
+    value: ${{ steps.build.outputs.full_pdf }}
+  changed_pages:
+    description: "Number of changed pages in the diff."
+    value: ${{ steps.build.outputs.changed_pages }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve base/head
+      id: refs
+      shell: bash
+      run: |
+        base='${{ inputs.base }}'
+        head='${{ inputs.head }}'
+        [ -z "$base" ] && base='${{ github.event.pull_request.base.sha }}'
+        [ -z "$head" ] && head='${{ github.event.pull_request.head.sha }}'
+        [ -z "$head" ] && head='${{ github.sha }}'
+        echo "base=$base" >> "$GITHUB_OUTPUT"
+        echo "head=$head" >> "$GITHUB_OUTPUT"
+
+    - name: Build diff (and full) PDFs
+      id: build
+      shell: bash
+      env:
+        INPUT_MAIN: ${{ inputs.main }}
+        INPUT_BUILD_COMMAND: ${{ inputs.build_command }}
+        INPUT_BUILD_DIR: ${{ inputs.build_dir }}
+        INPUT_LATEXDIFF_OPTIONS: ${{ inputs.latexdiff_options }}
+        INPUT_UNTRACKED_ASSETS: ${{ inputs.assets }}
+        BASE: ${{ steps.refs.outputs.base }}
+        HEAD: ${{ steps.refs.outputs.head }}
+        IMAGE: ${{ inputs.image }}
+        CONFIG: ${{ inputs.config }}
+        DO_FULL: ${{ inputs.full }}
+      run: |
+        set -euo pipefail
+        out="$GITHUB_WORKSPACE/latexdiff-out"
+        mkdir -p "$out"
+
+        docker pull -q "$IMAGE" || true
+        run() {
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/github/workspace" \
+            -w /github/workspace \
+            -e CI=true -e GITHUB_OUTPUT=/dev/null \
+            -e INPUT_MAIN -e INPUT_BUILD_COMMAND -e INPUT_BUILD_DIR \
+            -e INPUT_LATEXDIFF_OPTIONS -e INPUT_UNTRACKED_ASSETS \
+            "$IMAGE" "$@"
+        }
+
+        if [ -z "${BASE:-}" ]; then
+          echo "::warning::No base ref (not a pull_request?). Skipping diff."
+          echo "changed_pages=0" >> "$GITHUB_OUTPUT"
+        else
+          echo "Building diff $BASE .. $HEAD"
+          # Don't let a failed compile abort the step (set -e): build-diff still
+          # prints its JSON result, which we report below.
+          run build-diff --config "$CONFIG" --old "$BASE" --new "$HEAD" \
+              -o /github/workspace/latexdiff-out/diff.pdf \
+              > "$out/diff.json" || true
+          cat "$out/diff.json" || true
+          changed=$(python3 -c 'import json;print(json.load(open("'"$out"'/diff.json")).get("changed_pages",0))' 2>/dev/null || echo 0)
+          okdiff=$(python3 -c 'import json;print(json.load(open("'"$out"'/diff.json")).get("ok",False))' 2>/dev/null || echo False)
+          echo "changed_pages=$changed" >> "$GITHUB_OUTPUT"
+          echo "diff_ok=$okdiff" >> "$GITHUB_OUTPUT"
+          [ -f "$out/diff.pdf" ] && echo "diff_pdf=$out/diff.pdf" >> "$GITHUB_OUTPUT"
+        fi
+
+        if [ "$DO_FULL" = "true" ]; then
+          echo "Building full PDF of $HEAD"
+          run build-full --config "$CONFIG" --commit "$HEAD" \
+              -o /github/workspace/latexdiff-out/full.pdf || true
+          [ -f "$out/full.pdf" ] && echo "full_pdf=$out/full.pdf" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Upload PDFs artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact_name }}
+        path: |
+          ${{ github.workspace }}/latexdiff-out/*.pdf
+        if-no-files-found: warn
+
+    - name: Comment on PR
+      if: ${{ inputs.comment == 'true' && github.event_name == 'pull_request' }}
+      uses: actions/github-script@v7
+      env:
+        CHANGED: ${{ steps.build.outputs.changed_pages }}
+        DIFF_OK: ${{ steps.build.outputs.diff_ok }}
+        ARTIFACT: ${{ inputs.artifact_name }}
+        BASE: ${{ steps.refs.outputs.base }}
+        HEAD: ${{ steps.refs.outputs.head }}
+      with:
+        github-token: ${{ inputs.github_token }}
+        script: |
+          const changed = process.env.CHANGED || '0';
+          const diffOk = process.env.DIFF_OK === 'True';
+          const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+          const marker = '<!-- latex-diff-viewer -->';
+          const status = diffOk
+            ? `✅ Built the latexdiff — **${changed} changed page(s)**.`
+            : `⚠️ The diff build reported problems; check the logs.`;
+          const body = [
+            marker,
+            '### 📄 LaTeX diff viewer',
+            status,
+            '',
+            `Download the **${process.env.ARTIFACT}** artifact (diff + full PDF) from the [workflow run](${runUrl}).`,
+            '',
+            `<sub>base \`${process.env.BASE}\` … head \`${process.env.HEAD}\`</sub>`,
+          ].join('\n');
+          const {owner, repo} = context.repo;
+          const issue_number = context.payload.pull_request.number;
+          const {data: comments} = await github.rest.issues.listComments({owner, repo, issue_number});
+          const existing = comments.find(c => c.body && c.body.includes(marker));
+          if (existing) {
+            await github.rest.issues.updateComment({owner, repo, comment_id: existing.id, body});
+          } else {
+            await github.rest.issues.createComment({owner, repo, issue_number, body});
+          }

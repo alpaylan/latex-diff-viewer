@@ -1,0 +1,47 @@
+# Copy this to .github/workflows/latex-diff.yml in your LaTeX project.
+#
+# Prereqs:
+#   * A difftool.toml in the repo root (see difftool.example.toml). Minimal:
+#         main = "main.tex"
+#         build_command = "latexmk -pdf -f -interaction=nonstopmode main.tex"
+#   * Settings -> Pages -> Source = "GitHub Actions" (for the Pages job).
+#
+# On every PR it posts a comment + uploads the diff/full PDFs.
+# On every push to main it (re)publishes the browsable Pages viewer.
+
+name: LaTeX diff
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  # ---- PR check: build base..head diff, comment + artifact -----------------
+  diff:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write     # so the action can post its comment
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # git-latexdiff needs both commits' history
+      - uses: alpaylan/latex-diff-viewer@v1
+        with:
+          config: difftool.toml
+          # main: main.tex            # or configure everything in difftool.toml
+          # build_command: latexmk -pdf -f -interaction=nonstopmode main.tex
+
+  # ---- main: publish the static Pages viewer -------------------------------
+  pages:
+    if: github.event_name == 'push'
+    uses: alpaylan/latex-diff-viewer/.github/workflows/pages.yml@v1
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    with:
+      config: difftool.toml
+      # pages_pairs: "HEAD~5..HEAD"   # override which diffs to pre-build

@@ -1,0 +1,4 @@
+# Writing into build/ lets latex-diff-viewer preserve the .aux across
+# git-latexdiff's cleanup, which powers the "changed pages" index.
+$pdf_mode = 1;
+$out_dir  = 'build';

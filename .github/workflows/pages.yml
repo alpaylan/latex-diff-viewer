@@ -1,0 +1,80 @@
+name: Publish LaTeX diff Pages
+
+# Reusable workflow: build the configured diffs into a static site and deploy it
+# to GitHub Pages. Call it from your repo:
+#
+#   jobs:
+#     pages:
+#       uses: alpaylan/latex-diff-viewer/.github/workflows/pages.yml@v1
+#       permissions:
+#         contents: read
+#         pages: write
+#         id-token: write
+#
+# Enable Pages in the repo settings (Source = GitHub Actions) first.
+
+on:
+  workflow_call:
+    inputs:
+      config:
+        type: string
+        default: "difftool.toml"
+      image:
+        type: string
+        default: "ghcr.io/alpaylan/latex-diff-viewer:v1"
+      main:
+        type: string
+        default: ""
+      pages_pairs:
+        description: "Override pages_pairs, e.g. 'v1..HEAD, HEAD~5..HEAD'."
+        type: string
+        default: ""
+      fetch_depth:
+        description: "History depth to check out (0 = full; needed for older refs)."
+        type: number
+        default: 0
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+
+      - name: Build static viewer
+        env:
+          IMAGE: ${{ inputs.image }}
+          CONFIG: ${{ inputs.config }}
+          INPUT_MAIN: ${{ inputs.main }}
+          INPUT_PAGES_PAIRS: ${{ inputs.pages_pairs }}
+        run: |
+          set -euo pipefail
+          docker pull -q "$IMAGE" || true
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/github/workspace" \
+            -w /github/workspace \
+            -e CI=true -e GITHUB_OUTPUT=/dev/null \
+            -e INPUT_MAIN -e INPUT_PAGES_PAIRS \
+            "$IMAGE" pages --config "$CONFIG" -o /github/workspace/site
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

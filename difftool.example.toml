@@ -1,0 +1,33 @@
+# latex-diff-viewer configuration. Drop this in your repo root as `difftool.toml`.
+# Every key is optional; defaults suit a plain `latexmk`-based project.
+
+# Main LaTeX file (relative to the repo root).
+main = "main.tex"
+
+# Full-build command for the "current draft" / no-diff PDF. Placeholders {main},
+# {build_dir}, {jobname} are substituted. This is your project's OWN build — swap
+# in `make`, `tectonic`, a script, whatever produces your PDF.
+build_command = "latexmk -pdf -f -interaction=nonstopmode {main}"
+
+# --- Optional -------------------------------------------------------------
+
+# latexmk out_dir. Leave unset if latexmk writes the PDF next to main.tex.
+# Setting this (together with a latexmkrc `$out_dir`) enables the "changed
+# pages" index in the viewer, because the .aux survives git-latexdiff's cleanup.
+# build_dir = "build"
+
+# Where build_command leaves the PDF. Defaults to {build_dir}/{jobname}.pdf,
+# or {jobname}.pdf when build_dir is unset. Set it if your build is unusual.
+# output_pdf = "build/main.pdf"
+
+# Extra flags passed straight to `git latexdiff` (e.g. mark a custom verbatim
+# environment so latexdiff doesn't touch it).
+# latexdiff_options = ["--add-to-config=VERBATIMLINEENV=code"]
+
+# Globs of gitignored-but-present files (e.g. generated figure PDFs) to mirror
+# into the diff/full checkouts. Only relevant for local runs — in CI these are
+# usually committed or produced by build_command.
+# untracked_assets = ["figures/**/*.pdf"]
+
+# Diffs to pre-build for the static GitHub Pages viewer, as "base..compare".
+# pages_pairs = ["v1.0..HEAD", "HEAD~5..HEAD"]

@@ -1,0 +1,65 @@
+name: Self-test
+
+# Build the image and exercise the CLI against a tiny two-commit LaTeX repo, so
+# regressions in the build core / CLI / Docker packaging are caught on every push.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t ldv:test .
+
+      - name: Prepare a two-commit sample repo
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/sample"
+          cp -r tests/sample-project "$work"
+          cd "$work"
+          git init -q
+          git -c user.email=a@b.c -c user.name=test add -A
+          git -c user.email=a@b.c -c user.name=test commit -qm "v1"
+          python3 - <<'PY'
+          import pathlib
+          p = pathlib.Path("main.tex"); t = p.read_text()
+          t = t.replace("version one", "version two")
+          t = t.replace("% EXTRA",
+                        "\\section{Results}\nA newly added section so the diff spans pages.")
+          p.write_text(t)
+          PY
+          git -c user.email=a@b.c -c user.name=test commit -qam "v2"
+
+      - name: build-diff
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/sample"
+          docker run --rm -v "$work:/w" -w /w ldv:test \
+            build-diff --old HEAD~1 --new HEAD -o /w/out/diff.pdf | tee "$RUNNER_TEMP/diff.json"
+          test -s "$work/out/diff.pdf"
+          python3 -c 'import json;d=json.load(open("'"$RUNNER_TEMP"'/diff.json"));assert d["ok"], d'
+          echo "diff OK"
+
+      - name: build-full
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/sample"
+          docker run --rm -v "$work:/w" -w /w ldv:test \
+            build-full --commit HEAD -o /w/out/full.pdf
+          test -s "$work/out/full.pdf"
+          echo "full OK"
+
+      - name: pages
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/sample"
+          docker run --rm -v "$work:/w" -w /w ldv:test pages -o /w/site
+          test -s "$work/site/manifest.json"
+          test -s "$work/site/index.html"
+          python3 -c 'import json;m=json.load(open("'"$work"'/site/manifest.json"));assert m["diffs"], m'
+          echo "pages OK"
