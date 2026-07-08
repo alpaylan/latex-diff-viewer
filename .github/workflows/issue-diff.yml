@@ -184,3 +184,8 @@ jobs:
             } else {
               await github.rest.issues.createComment({ owner, repo, issue_number, body });
             }
+            // Rendering done — close the issue on success (leave it open otherwise).
+            if (ok) {
+              await github.rest.issues.update(
+                { owner, repo, issue_number, state: 'closed', state_reason: 'completed' });
+            }

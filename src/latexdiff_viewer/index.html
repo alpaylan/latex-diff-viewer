@@ -392,8 +392,15 @@ function view(d) {
   f.style.display = "block";
   $("#viewer-empty").style.display = "none";
   renderChanges(d);
-  if (!STATIC) refresh();
-  else renderAll(MANIFEST.diffs);
+  if (STATIC) {
+    // Deep-link the current diff so a refresh (or shared URL) reopens it.
+    const q = (d.kind !== "full" && (d.id || "").includes(".."))
+      ? "?diff=" + encodeURIComponent(d.id) : location.pathname;
+    history.replaceState(null, "", q);
+    renderAll(MANIFEST.diffs);
+  } else {
+    refresh();
+  }
 }
 
 function renderCurrent(d) {
