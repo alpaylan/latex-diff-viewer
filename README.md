@@ -58,6 +58,11 @@ artifact** containing the diff PDF and a full PDF of the head commit. On every
 push to `main` the browsable viewer is published to GitHub Pages (enable
 **Settings → Pages → Source: GitHub Actions** once).
 
+You can also **run it by hand**: Actions → *LaTeX diff* → *Run workflow*, and
+optionally type the two commits to compare (blank compares the latest commit
+against its parent). Manual and push runs have no PR to comment on, so they
+report the result on the run's **Summary** page and via the uploaded artifact.
+
 A ready-to-copy version lives in [`examples/consumer.yml`](examples/consumer.yml).
 
 ### Action inputs
@@ -111,7 +116,8 @@ docker run --rm -it -p 8765:8765 -v "$PWD:/repo" -w /repo \
 | `output_pdf` | `{build_dir}/{jobname}.pdf` | Where `build_command` leaves the PDF (auto-discovered if it differs). |
 | `latexdiff_options` | `[]` | Extra flags for `git latexdiff`. |
 | `untracked_assets` | `[]` | Globs of gitignored files to mirror into checkouts (local only). |
-| `pages_pairs` | `[]` | `base..compare` diffs to pre-build for Pages. |
+| `pages_recent` | `10` | Pages viewer pre-builds a diff for each of the last N commits (vs parent). |
+| `pages_pairs` | `[]` | Pin specific `base..compare` diffs for Pages (overrides `pages_recent`). |
 
 A JSON `difftool.json` with the same keys works too (for Python < 3.11 without
 `tomllib`).

@@ -8,6 +8,8 @@
 #
 # On every PR it posts a comment + uploads the diff/full PDFs.
 # On every push to main it (re)publishes the browsable Pages viewer.
+# You can also trigger it by hand (Actions -> LaTeX diff -> Run workflow) and
+# optionally type the two commits to compare.
 
 name: LaTeX diff
 
@@ -15,26 +17,38 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "Base ref to diff FROM (blank = the head commit's parent)"
+        required: false
+        default: ""
+      head:
+        description: "Compare ref to diff TO (blank = latest commit)"
+        required: false
+        default: ""
 
 jobs:
-  # ---- PR check: build base..head diff, comment + artifact -----------------
+  # ---- PR check / manual run: build base..head diff, comment + artifact ------
   diff:
-    if: github.event_name == 'pull_request'
+    if: github.event_name != 'push'      # runs on pull_request and workflow_dispatch
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write     # so the action can post its comment
+      pull-requests: write               # so the action can post its comment on PRs
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0        # git-latexdiff needs both commits' history
+          fetch-depth: 0                  # git-latexdiff needs both commits' history
       - uses: alpaylan/latex-diff-viewer@v1
         with:
           config: difftool.toml
-          # main: main.tex            # or configure everything in difftool.toml
-          # build_command: latexmk -pdf -f -interaction=nonstopmode main.tex
+          # On a manual run these come from the form; on a PR they're empty and
+          # the action falls back to the PR's base/head automatically.
+          base: ${{ inputs.base }}
+          head: ${{ inputs.head }}
 
-  # ---- main: publish the static Pages viewer -------------------------------
+  # ---- main: publish the static Pages viewer --------------------------------
   pages:
     if: github.event_name == 'push'
     uses: alpaylan/latex-diff-viewer/.github/workflows/pages.yml@v1
@@ -44,4 +58,4 @@ jobs:
       id-token: write
     with:
       config: difftool.toml
-      # pages_pairs: "HEAD~5..HEAD"   # override which diffs to pre-build
+      # pages_pairs: "HEAD~5..HEAD"       # override which diffs to pre-build

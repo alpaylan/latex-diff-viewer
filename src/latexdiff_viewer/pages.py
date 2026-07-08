@@ -33,8 +33,14 @@ def generate(cfg: _config.Config, out_dir: str, on_line=None) -> dict:
     os.makedirs(out_dir, exist_ok=True)
     diffs: list[dict] = []
 
-    # Each configured pair -> a diff PDF + its change index.
-    for old_ref, new_ref in cfg.pages_pairs:
+    # Explicit pages_pairs win; otherwise pre-build the last N commits vs parent.
+    pairs = cfg.pages_pairs or core.recent_commit_pairs(cfg.repo_root, cfg.pages_recent)
+    if on_line:
+        how = "pages_pairs" if cfg.pages_pairs else f"last {cfg.pages_recent} commits"
+        on_line(f"[pages] building {len(pairs)} diff(s) from {how}")
+
+    # Each pair -> a diff PDF + its change index.
+    for old_ref, new_ref in pairs:
         try:
             core.ensure_ref(cfg.repo_root, old_ref)
             core.ensure_ref(cfg.repo_root, new_ref)
@@ -72,9 +78,12 @@ def generate(cfg: _config.Config, out_dir: str, on_line=None) -> dict:
             "elapsed": full.elapsed, "changes": [],
         })
 
+    # In CI the checkout lives at /github/workspace; prefer the real repo name.
+    repo_name = os.environ.get("GITHUB_REPOSITORY", "").split("/")[-1] \
+        or os.path.basename(cfg.repo_root)
     manifest = {
         "generated": _now_iso(),
-        "repo": os.path.basename(cfg.repo_root),
+        "repo": repo_name,
         "main": cfg.main,
         "diffs": diffs,
     }

@@ -29,5 +29,10 @@ build_command = "latexmk -pdf -f -interaction=nonstopmode {main}"
 # usually committed or produced by build_command.
 # untracked_assets = ["figures/**/*.pdf"]
 
-# Diffs to pre-build for the static GitHub Pages viewer, as "base..compare".
+# GitHub Pages viewer: by default it pre-builds a diff for each of the last
+# `pages_recent` commits (vs its parent), giving a per-commit history.
+# pages_recent = 10
+#
+# To pin specific diffs instead, list them as "base..compare" (this overrides
+# pages_recent):
 # pages_pairs = ["v1.0..HEAD", "HEAD~5..HEAD"]

@@ -78,6 +78,22 @@ def rev_parse(repo_root: str, ref: str) -> str:
     return git(repo_root, "rev-parse", ref).strip()
 
 
+def recent_commit_pairs(repo_root: str, n: int) -> list[list[str]]:
+    """[[parent, commit], ...] for the last n commits that have a parent, newest
+    first. Used to pre-build a per-commit diff history for the Pages viewer."""
+    try:
+        out = git(repo_root, "log", f"-{max(int(n), 0)}", "--pretty=%H %P")
+    except Exception:  # noqa: BLE001
+        return []
+    pairs: list[list[str]] = []
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) >= 2:                 # commit + at least a first parent
+            commit, first_parent = parts[0], parts[1]
+            pairs.append([first_parent, commit])
+    return pairs
+
+
 def commit_info(repo_root: str, ref: str) -> dict:
     """Resolve an arbitrary ref (sha/tag/branch/HEAD) to {hash, short, date, subject}."""
     fmt = "%H%x1f%h%x1f%ad%x1f%s"

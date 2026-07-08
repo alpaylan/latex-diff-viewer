@@ -82,6 +82,11 @@ runs:
         [ -z "$base" ] && base='${{ github.event.pull_request.base.sha }}'
         [ -z "$head" ] && head='${{ github.event.pull_request.head.sha }}'
         [ -z "$head" ] && head='${{ github.sha }}'
+        # push / manual dispatch with no base given: diff the head commit against
+        # its parent, so a single-commit run still produces a meaningful diff.
+        if [ -z "$base" ]; then
+          base="$(git -C "$GITHUB_WORKSPACE" rev-parse --verify --quiet "${head}^" || true)"
+        fi
         echo "base=$base" >> "$GITHUB_OUTPUT"
         echo "head=$head" >> "$GITHUB_OUTPUT"
 
@@ -147,6 +152,32 @@ runs:
         path: |
           ${{ github.workspace }}/latexdiff-out/*.pdf
         if-no-files-found: warn
+
+    # Surface the result on the run's Summary page — the only feedback on manual
+    # (workflow_dispatch) and push runs, where there's no PR to comment on.
+    - name: Job summary
+      if: ${{ always() }}
+      shell: bash
+      env:
+        CHANGED: ${{ steps.build.outputs.changed_pages }}
+        DIFF_OK: ${{ steps.build.outputs.diff_ok }}
+        ARTIFACT: ${{ inputs.artifact_name }}
+        BASE: ${{ steps.refs.outputs.base }}
+        HEAD: ${{ steps.refs.outputs.head }}
+      run: |
+        {
+          echo "### 📄 LaTeX diff viewer"
+          if [ -z "${BASE:-}" ]; then
+            echo "ℹ️ No base ref to diff against (single/first commit); built the full PDF only."
+          elif [ "${DIFF_OK:-}" = "True" ]; then
+            echo "✅ Built the latexdiff — **${CHANGED:-0} changed page(s)**."
+          else
+            echo "⚠️ The diff build reported problems; check the logs."
+          fi
+          echo ""
+          echo "Download the **${ARTIFACT}** artifact (diff + full PDF) from this run."
+          [ -n "${BASE:-}" ] && echo "" && echo "<sub>base \`${BASE}\` … head \`${HEAD}\`</sub>"
+        } >> "$GITHUB_STEP_SUMMARY"
 
     - name: Comment on PR
       if: ${{ inputs.comment == 'true' && github.event_name == 'pull_request' }}

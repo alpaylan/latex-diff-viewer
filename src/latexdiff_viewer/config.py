@@ -34,6 +34,7 @@ DEFAULTS: dict = {
     "latexdiff_options": [],         # extra flags handed to `git latexdiff`
     "untracked_assets": [],          # globs copied into checkouts (e.g. gitignored figures)
     "pages_pairs": [],               # [[base, compare], ...] diffs pre-built for the Pages site
+    "pages_recent": 10,              # if pages_pairs is empty, pre-build the last N commits vs parent
 }
 
 
@@ -48,6 +49,7 @@ class Config:
     latexdiff_options: list[str]
     untracked_assets: list[str]
     pages_pairs: list[list[str]]
+    pages_recent: int = 10
     source: str | None = None        # path of the config file used, if any
 
     # --- derived paths -----------------------------------------------------
@@ -73,7 +75,8 @@ class Config:
             "output_pdf": self.output_pdf, "build_command": self.build_command,
             "latexdiff_options": self.latexdiff_options,
             "untracked_assets": self.untracked_assets,
-            "pages_pairs": self.pages_pairs, "source": self.source,
+            "pages_pairs": self.pages_pairs, "pages_recent": self.pages_recent,
+            "source": self.source,
         }
 
 
@@ -213,19 +216,23 @@ def load(repo_root: str, config_path: str | None = None,
     latexdiff_options = _expand(_as_flags(values["latexdiff_options"]) or [], mapping)
     untracked_assets = _as_globs(values["untracked_assets"]) or []
     pages_pairs = _as_pairs(values["pages_pairs"]) or []
+    try:
+        pages_recent = int(values["pages_recent"])
+    except (TypeError, ValueError):
+        pages_recent = DEFAULTS["pages_recent"]
 
     return Config(
         repo_root=repo_root, main=main, build_dir=build_dir, jobname=jobname,
         output_pdf=str(output_pdf), build_command=build_command,
         latexdiff_options=latexdiff_options, untracked_assets=untracked_assets,
-        pages_pairs=pages_pairs, source=source,
+        pages_pairs=pages_pairs, pages_recent=pages_recent, source=source,
     )
 
 
 # GitHub Actions exposes each input `foo` as env INPUT_FOO. Map the ones we take
 # so cli.py can pull overrides straight from the environment when run in a step.
 _ENV_KEYS = ("main", "build_dir", "jobname", "output_pdf", "build_command",
-             "latexdiff_options", "untracked_assets", "pages_pairs")
+             "latexdiff_options", "untracked_assets", "pages_pairs", "pages_recent")
 
 
 def overrides_from_env(env: dict | None = None) -> dict:
