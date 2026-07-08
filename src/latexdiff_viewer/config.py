@@ -11,6 +11,7 @@ of those lives here as a default a project can override.
 
 from __future__ import annotations
 
+import glob
 import json
 import os
 import shlex
@@ -155,6 +156,25 @@ def find_config(repo_root: str) -> str | None:
     return None
 
 
+def detect_main(repo_root: str) -> str | None:
+    """Best-effort: the single .tex that is a document root (has \\documentclass
+    and \\begin{document}). Prefers a top-level match; returns None if it's
+    ambiguous (0 or >1), leaving the caller to keep the default / ask for config."""
+    def is_root(path: str) -> bool:
+        try:
+            with open(path, encoding="utf-8", errors="ignore") as fh:
+                txt = fh.read(200_000)
+        except OSError:
+            return False
+        return "\\documentclass" in txt and "\\begin{document}" in txt
+
+    pool = [p for p in glob.glob(os.path.join(repo_root, "*.tex")) if is_root(p)]
+    if not pool:  # nothing at the top level: search deeper
+        pool = [p for p in glob.glob(os.path.join(repo_root, "**", "*.tex"),
+                                     recursive=True) if is_root(p)]
+    return os.path.relpath(pool[0], repo_root) if len(pool) == 1 else None
+
+
 def read_config_file(path: str) -> dict:
     with open(path, "rb") as fh:
         raw = fh.read()
@@ -199,6 +219,12 @@ def load(repo_root: str, config_path: str | None = None,
 
     # Normalise the shape of each field.
     main = str(values["main"])
+    # Zero-config nicety: if nobody pointed us at a main file and the default
+    # main.tex isn't present, auto-detect the document root.
+    if main == DEFAULTS["main"] and not os.path.isfile(os.path.join(repo_root, main)):
+        detected = detect_main(repo_root)
+        if detected:
+            main = detected
     build_dir = str(values["build_dir"] or "")
     jobname = values["jobname"] or os.path.splitext(os.path.basename(main))[0]
     jobname = str(jobname)

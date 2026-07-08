@@ -1,5 +1,7 @@
-# latex-diff-viewer configuration. Drop this in your repo root as `difftool.toml`.
-# Every key is optional; defaults suit a plain `latexmk`-based project.
+# latex-diff-viewer configuration (difftool.toml) — OPTIONAL.
+# With no file, the tool auto-detects the single main .tex (\documentclass +
+# \begin{document}) and builds it with `latexmk -pdf`. Add this file only to
+# override something. Every key is optional and can also be a workflow `with:` input.
 
 # Main LaTeX file (relative to the repo root).
 main = "main.tex"

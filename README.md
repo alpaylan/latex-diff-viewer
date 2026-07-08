@@ -14,11 +14,19 @@ you can click to jump straight to each change.
 
 ## 1. GitHub Action — PR comments + artifacts
 
-Add a `difftool.toml` to your repo root (see [`difftool.example.toml`](difftool.example.toml)):
+**No config needed for the common case.** If your project has a single LaTeX
+document and builds with `latexmk`, just add the workflow below — the tool
+**auto-detects the main `.tex`** (the file with `\documentclass` +
+`\begin{document}`) and uses `latexmk -pdf`.
+
+Add a `difftool.toml` (see [`difftool.example.toml`](difftool.example.toml)) *only
+to override something* — e.g. a non-`latexmk` build, or when several documents make
+the main file ambiguous. Anything in it can equally be passed as workflow `with:`
+inputs, so the file is never mandatory:
 
 ```toml
-main = "main.tex"
-build_command = "latexmk -pdf -f -interaction=nonstopmode main.tex"
+# every key optional
+build_command = "make"        # e.g. if you don't use latexmk
 ```
 
 Then `.github/workflows/latex-diff.yml`:
