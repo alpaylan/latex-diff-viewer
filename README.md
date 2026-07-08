@@ -149,3 +149,12 @@ CI (`.github/workflows/selftest.yml`) builds the image and exercises
 `build-diff` / `build-full` / `pages` against a tiny two-commit sample project in
 `tests/sample-project/`. `docker-publish.yml` pushes the image to GHCR on a `v*`
 tag.
+
+## License
+
+latex-diff-viewer's own code is licensed under the [MIT License](LICENSE).
+
+It orchestrates existing tools without including their code. The published
+Docker image additionally **bundles** `git-latexdiff` (permissive/BSD),
+`latexdiff` and `latexmk` (GPL), and TeX Live (mixed) — each under its own
+license, unmodified. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
