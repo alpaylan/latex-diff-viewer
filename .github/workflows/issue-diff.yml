@@ -58,6 +58,23 @@ jobs:
           echo "head=${pair##*..}" >> "$GITHUB_OUTPUT"
           echo "ok=true" >> "$GITHUB_OUTPUT"
 
+      # Immediate feedback: post a "building…" comment with a link to this run, so
+      # the requester sees something is happening. The final step updates it in place.
+      - name: Acknowledge the request
+        if: steps.parse.outputs.ok == 'true'
+        uses: actions/github-script@v7
+        env:
+          BASE: ${{ steps.parse.outputs.base }}
+          HEAD: ${{ steps.parse.outputs.head }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const body = `<!-- ldv -->\n🔧 Building diff \`${process.env.BASE}..${process.env.HEAD}\`…\n\n`
+              + `Follow along in the [workflow run ▸](${runUrl}).`;
+            await github.rest.issues.createComment(
+              { owner, repo, issue_number: ${{ inputs.issue_number }}, body });
+
       - name: Checkout source
         if: steps.parse.outputs.ok == 'true'
         uses: actions/checkout@v4
@@ -138,23 +155,32 @@ jobs:
         with:
           script: |
             const { owner, repo } = context.repo;
+            const issue_number = ${{ inputs.issue_number }};
+            const marker = '<!-- ldv -->';
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const parsed = process.env.PARSED === 'true';
             const ok = process.env.OK === 'True' && process.env.PUBLISHED === 'true';
             const id = process.env.DIFF_ID || '';
-            let body;
+            let msg;
             if (!parsed) {
-              body = "⚠️ I couldn't find a `base..head` pair in the title. "
+              msg = "⚠️ I couldn't find a `base..head` pair in the title. "
                 + "Rename this issue to e.g. `latexdiff v1..HEAD` (two commits, branches, "
                 + "or tags) and I'll build the diff.";
             } else if (ok) {
               const url = `https://${owner}.github.io/${repo}/?diff=${encodeURIComponent(id)}`;
-              body = `📄 Built \`${id}\` — **${process.env.CHANGED} changed page(s)**.\n\n`
+              msg = `📄 Built \`${id}\` — **${process.env.CHANGED} changed page(s)**.\n\n`
                 + `View it here: ${url}\n\n<sub>GitHub Pages may take a minute to refresh.</sub>`;
             } else {
-              body = "❌ Sorry — I couldn't build or publish this diff. The commits may not "
+              msg = "❌ Sorry — I couldn't build or publish this diff. The commits may not "
                 + "exist, the document may not compile, or publishing hit a problem.\n\n"
-                + `Details in the run log: ${runUrl}`;
+                + `Details in the [run log](${runUrl}).`;
             }
-            await github.rest.issues.createComment(
-              { owner, repo, issue_number: ${{ inputs.issue_number }}, body });
+            const body = `${marker}\n${msg}`;
+            // Update the "building…" comment in place if it's there, else create one.
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
