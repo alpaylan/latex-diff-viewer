@@ -1,15 +1,16 @@
 # Copy this to .github/workflows/latex-diff.yml in your LaTeX project.
 #
-# Prereqs:
-#   * A difftool.toml in the repo root (see difftool.example.toml). Minimal:
-#         main = "main.tex"
-#         build_command = "latexmk -pdf -f -interaction=nonstopmode main.tex"
-#   * Settings -> Pages -> Source = "GitHub Actions" (for the Pages job).
+# One file, three flows, one viewer:
+#   * PR           -> build base..head diff, comment + upload PDFs.
+#   * push to main -> seed the last N commits' diffs into the `latexdiff-store` branch.
+#   * issue titled "latexdiff <base>..<head>" -> build that diff on demand into the
+#     same store branch, comment a viewer link, close the issue.
 #
-# On every PR it posts a comment + uploads the diff/full PDFs.
-# On every push to main it (re)publishes the browsable Pages viewer.
-# You can also trigger it by hand (Actions -> LaTeX diff -> Run workflow) and
-# optionally type the two commits to compare.
+# The store branch is served by GitHub Pages, so push-seeded history and on-demand
+# requests appear in ONE viewer. After the first run creates the branch, set
+# Settings -> Pages -> Deploy from a branch -> latexdiff-store / (root).
+#
+# Needs a difftool.toml (or rely on auto-detection). See difftool.example.toml.
 
 name: LaTeX diff
 
@@ -17,45 +18,43 @@ on:
   pull_request:
   push:
     branches: [main]
-  workflow_dispatch:
-    inputs:
-      base:
-        description: "Base ref to diff FROM (blank = the head commit's parent)"
-        required: false
-        default: ""
-      head:
-        description: "Compare ref to diff TO (blank = latest commit)"
-        required: false
-        default: ""
+  issues:
+    types: [opened, edited]
 
 jobs:
-  # ---- PR check / manual run: build base..head diff, comment + artifact ------
+  # PR: comment + artifact (independent of Pages).
   diff:
-    if: github.event_name != 'push'      # runs on pull_request and workflow_dispatch
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write               # so the action can post its comment on PRs
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0                  # git-latexdiff needs both commits' history
+          fetch-depth: 0
       - uses: alpaylan/latex-diff-viewer@v1
         with:
           config: difftool.toml
-          # On a manual run these come from the form; on a PR they're empty and
-          # the action falls back to the PR's base/head automatically.
-          base: ${{ inputs.base }}
-          head: ${{ inputs.head }}
 
-  # ---- main: publish the static Pages viewer --------------------------------
-  pages:
+  # push to main: keep recent-history diffs in the store viewer.
+  seed:
     if: github.event_name == 'push'
-    uses: alpaylan/latex-diff-viewer/.github/workflows/pages.yml@v1
+    uses: alpaylan/latex-diff-viewer/.github/workflows/store-seed.yml@v1
     permissions:
-      contents: read
-      pages: write
-      id-token: write
+      contents: write
     with:
       config: difftool.toml
-      # pages_pairs: "HEAD~5..HEAD"       # override which diffs to pre-build
+      # recent: 10        # how many recent commits to pre-build
+
+  # issue "latexdiff <base>..<head>": on-demand diff into the same store.
+  ondemand:
+    if: github.event_name == 'issues' && contains(github.event.issue.title, '..')
+    uses: alpaylan/latex-diff-viewer/.github/workflows/issue-diff.yml@v1
+    permissions:
+      contents: write
+      issues: write
+    with:
+      title: ${{ github.event.issue.title }}
+      issue_number: ${{ github.event.issue.number }}
+      config: difftool.toml

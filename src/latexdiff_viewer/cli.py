@@ -179,6 +179,27 @@ def cmd_store_add(args) -> int:
     return 0 if res.get("ok") else 1
 
 
+def cmd_store_seed(args) -> int:
+    """Append the pre-generated set (pages_pairs, else the last pages_recent commits
+    vs parent) to a store dir — so a push can keep a recent-history viewer in the
+    same store the on-demand issue flow writes to."""
+    from . import store, core
+    cfg = resolve(args)
+    pairs = cfg.pages_pairs or core.recent_commit_pairs(cfg.repo_root, cfg.pages_recent)
+    built = existing = failed = 0
+    for old, new in pairs:
+        r = store.add_diff(cfg, args.store, old, new, retain=args.retain, on_line=stderr_sink)
+        if not r.get("ok"):
+            failed += 1
+        elif r.get("existing"):
+            existing += 1
+        else:
+            built += 1
+    print(json.dumps({"ok": True, "pairs": len(pairs),
+                      "built": built, "existing": existing, "failed": failed}))
+    return 0
+
+
 def cmd_serve(args) -> int:
     from . import server
     cfg = resolve(args)
@@ -219,6 +240,14 @@ def build_parser() -> argparse.ArgumentParser:
     sa.add_argument("--retain", type=int, default=50,
                     help="keep this many most-recent diffs (default 50)")
     sa.set_defaults(func=cmd_store_add)
+
+    ss = sub.add_parser("store-seed",
+                        help="append pages_recent/pages_pairs diffs to a store dir")
+    add_config_args(ss)
+    ss.add_argument("--store", required=True, help="store directory (served by Pages)")
+    ss.add_argument("--retain", type=int, default=50,
+                    help="keep this many most-recent diffs (default 50)")
+    ss.set_defaults(func=cmd_store_seed)
 
     s = sub.add_parser("serve", help="run the interactive local web UI")
     add_config_args(s)

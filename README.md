@@ -87,17 +87,32 @@ A ready-to-copy version lives in [`examples/consumer.yml`](examples/consumer.yml
 
 Outputs: `diff_pdf`, `full_pdf`, `changed_pages`.
 
-### On-demand diffs via issues
+### The Pages viewer — two architectures
 
-Add [`examples/issue-diff.yml`](examples/issue-diff.yml) and anyone can request a
-diff by **opening an issue titled `latexdiff <base>..<head>`**. The workflow builds
-it, publishes it to a `latexdiff-store` branch, and comments a viewer link. GitHub
-Pages serves that branch (Settings → Pages → *Deploy from a branch* →
-`latexdiff-store`), so the diff renders publicly — and the viewer offers a
-**"Request diff"** button that opens exactly such an issue for pairs that aren't
-built yet (a self-filling cache). The store keeps the most recent `retain`
-(default 50) diffs. Note: Actions *artifacts* can't power this (they need auth and
-expire); the store branch is what makes the diffs publicly reachable.
+A repo can have **one** Pages source, so pick one:
+
+- **Store viewer (recommended, unified).** A `latexdiff-store` branch holds the
+  diffs + manifest + viewer; **push-seeded recent history and on-demand requests
+  both append to it**, so they show in one viewer. Set Settings → Pages → *Deploy
+  from a branch* → `latexdiff-store`. Wire it with one file —
+  [`examples/consumer.yml`](examples/consumer.yml) — combining:
+  - `store-seed.yml` on **push**: pre-builds the last `pages_recent` commits' diffs.
+  - `issue-diff.yml` on **issues**: an issue titled `latexdiff <base>..<head>` builds
+    that diff on demand, comments a viewer link, and closes the issue. The viewer's
+    **"Request diff"** button opens exactly such an issue (a self-filling cache);
+    it shows **"Building…"** if one's already in progress.
+
+  Both use the same `concurrency` group so they never race; the store keeps the
+  most recent `retain` (default 50) diffs. (Actions *artifacts* can't power a static
+  viewer — they need auth and expire; the branch is what makes diffs publicly
+  reachable.)
+
+- **Pre-generated only.** [`pages.yml`](.github/workflows/pages.yml) deploys a fresh
+  site via `actions/deploy-pages` (Settings → Pages → *GitHub Actions*). Simpler,
+  but no on-demand requests, and it can't coexist with the store viewer.
+
+The **PR action is independent of both** — it only comments + uploads an artifact,
+so it works alongside either (or neither).
 
 ---
 

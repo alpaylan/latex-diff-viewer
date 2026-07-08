@@ -1,0 +1,91 @@
+name: LaTeX diff (seed store)
+
+# Reusable workflow: on push, pre-build recent diffs (pages_recent / pages_pairs)
+# and APPEND them to the same `latexdiff-store` branch the on-demand issue flow
+# writes to — so one Pages viewer (branch source) shows both auto-updated recent
+# history AND on-demand requests.
+#
+# Caller (.github/workflows/store-seed.yml in your repo):
+#   on:
+#     push:
+#       branches: [main]
+#   jobs:
+#     seed:
+#       uses: alpaylan/latex-diff-viewer/.github/workflows/store-seed.yml@v1
+#       permissions:
+#         contents: write
+#
+# Uses the same concurrency group + store branch as issue-diff.yml, so the two
+# never race on the push. Set Pages -> Deploy from a branch -> latexdiff-store.
+
+on:
+  workflow_call:
+    inputs:
+      config:       { type: string, default: "difftool.toml" }
+      image:        { type: string, default: "ghcr.io/alpaylan/latex-diff-viewer:v1" }
+      store_branch: { type: string, default: "latexdiff-store" }
+      recent:       { type: number, default: 10 }
+      retain:       { type: number, default: 50 }
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    # Same group as issue-diff.yml so seed + on-demand runs serialize on the store.
+    concurrency:
+      group: latexdiff-store-${{ github.repository }}-${{ inputs.store_branch }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Seed store (refetch/retry on concurrent pushes)
+        env:
+          IMAGE:  ${{ inputs.image }}
+          CONFIG: ${{ inputs.config }}
+          RECENT: ${{ inputs.recent }}
+          RETAIN: ${{ inputs.retain }}
+          STORE:  ${{ inputs.store_branch }}
+        run: |
+          set -uo pipefail
+          git config --global --add safe.directory '*'
+          docker pull -q "$IMAGE" || true
+
+          prepare() {
+            git worktree remove --force "$RUNNER_TEMP/store" 2>/dev/null || true
+            rm -rf "$RUNNER_TEMP/store"; git worktree prune
+            git fetch origin "$STORE" || true
+            if git show-ref --verify --quiet "refs/remotes/origin/$STORE"; then
+              git worktree add -B "$STORE" "$RUNNER_TEMP/store" "origin/$STORE"
+            else
+              git worktree add --detach "$RUNNER_TEMP/store" HEAD
+              git -C "$RUNNER_TEMP/store" checkout --orphan "$STORE"
+              git -C "$RUNNER_TEMP/store" rm -rf . >/dev/null 2>&1 || true
+            fi
+          }
+
+          for attempt in 1 2 3 4 5; do
+            prepare
+            docker run --rm \
+              -v "$GITHUB_WORKSPACE:/w" -w /w \
+              -v "$RUNNER_TEMP/store:/store" \
+              -e CI=true -e GITHUB_OUTPUT=/dev/null \
+              -e GITHUB_REPOSITORY="${{ github.repository }}" \
+              -e INPUT_PAGES_RECENT="$RECENT" \
+              "$IMAGE" store-seed --config "$CONFIG" --store /store --retain "$RETAIN" || true
+            sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/store" || true
+            (
+              cd "$RUNNER_TEMP/store"
+              git add -A
+              git -c user.email='bot@latex-diff-viewer' -c user.name='latex-diff-viewer' \
+                commit -q -m "seed store (push ${GITHUB_SHA:0:7})" || exit 3
+              git push origin "HEAD:$STORE"
+            )
+            rc=$?
+            if [ "$rc" -eq 0 ] || [ "$rc" -eq 3 ]; then exit 0; fi
+            echo "::warning::store push rejected (attempt $attempt) — retrying"
+            sleep $((attempt * 2))
+          done
+          echo "::error::could not update the store branch after retries"; exit 1
