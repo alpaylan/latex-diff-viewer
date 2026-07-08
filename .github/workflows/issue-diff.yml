@@ -36,6 +36,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Serialize per store branch so two requests can't race on the same push.
+    concurrency:
+      group: latexdiff-store-${{ github.repository }}-${{ inputs.store_branch }}
+      cancel-in-progress: false
     permissions:
       contents: write
       issues: write
@@ -60,24 +64,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Prepare store worktree (outside the source tree)
-        if: steps.parse.outputs.ok == 'true'
-        env:
-          STORE: ${{ inputs.store_branch }}
-        run: |
-          git config --global --add safe.directory '*'
-          git fetch origin "$STORE" || true
-          if git show-ref --verify --quiet "refs/remotes/origin/$STORE"; then
-            git worktree add -B "$STORE" "$RUNNER_TEMP/store" "origin/$STORE"
-          else
-            # Portable orphan branch (avoids `worktree add --orphan` arg-parsing
-            # differences across git versions): detach, then start an unborn branch.
-            git worktree add --detach "$RUNNER_TEMP/store" HEAD
-            git -C "$RUNNER_TEMP/store" checkout --orphan "$STORE"
-            git -C "$RUNNER_TEMP/store" rm -rf . >/dev/null 2>&1 || true
-          fi
-
-      - name: Build diff + append to store
+      - name: Build diff + publish to store (refetch/retry on concurrent pushes)
         if: steps.parse.outputs.ok == 'true'
         id: build
         env:
@@ -86,51 +73,88 @@ jobs:
           BASE:   ${{ steps.parse.outputs.base }}
           HEAD:   ${{ steps.parse.outputs.head }}
           RETAIN: ${{ inputs.retain }}
+          STORE:  ${{ inputs.store_branch }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          git config --global --add safe.directory '*'
           docker pull -q "$IMAGE" || true
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/w" -w /w \
-            -v "$RUNNER_TEMP/store:/store" \
-            -e CI=true -e GITHUB_OUTPUT=/dev/null \
-            -e GITHUB_REPOSITORY="${{ github.repository }}" \
-            "$IMAGE" store-add --config "$CONFIG" \
-              --old "$BASE" --new "$HEAD" --store /store --retain "$RETAIN" \
-              > "$RUNNER_TEMP/store.json" || true
-          sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/store" || true
-          cat "$RUNNER_TEMP/store.json" || true
+
+          # (Re)create the store worktree at the latest remote state each attempt.
+          prepare() {
+            git worktree remove --force "$RUNNER_TEMP/store" 2>/dev/null || true
+            rm -rf "$RUNNER_TEMP/store"; git worktree prune
+            git fetch origin "$STORE" || true
+            if git show-ref --verify --quiet "refs/remotes/origin/$STORE"; then
+              git worktree add -B "$STORE" "$RUNNER_TEMP/store" "origin/$STORE"
+            else
+              git worktree add --detach "$RUNNER_TEMP/store" HEAD
+              git -C "$RUNNER_TEMP/store" checkout --orphan "$STORE"
+              git -C "$RUNNER_TEMP/store" rm -rf . >/dev/null 2>&1 || true
+            fi
+          }
+
+          published=false
+          for attempt in 1 2 3 4 5; do
+            prepare
+            docker run --rm \
+              -v "$GITHUB_WORKSPACE:/w" -w /w \
+              -v "$RUNNER_TEMP/store:/store" \
+              -e CI=true -e GITHUB_OUTPUT=/dev/null \
+              -e GITHUB_REPOSITORY="${{ github.repository }}" \
+              "$IMAGE" store-add --config "$CONFIG" \
+                --old "$BASE" --new "$HEAD" --store /store --retain "$RETAIN" \
+                > "$RUNNER_TEMP/store.json" || true
+            sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/store" || true
+            cat "$RUNNER_TEMP/store.json" || true
+            okb=$(python3 -c 'import json;print(json.load(open("'"$RUNNER_TEMP"'/store.json")).get("ok",False))' 2>/dev/null || echo False)
+            if [ "$okb" != "True" ]; then echo "store-add did not produce a diff"; break; fi
+            (
+              cd "$RUNNER_TEMP/store"
+              git add -A
+              git -c user.email='bot@latex-diff-viewer' -c user.name='latex-diff-viewer' \
+                commit -q -m "diff ${BASE}..${HEAD} (issue #${{ inputs.issue_number }})" || exit 3
+              git push origin "HEAD:$STORE"
+            )
+            rc=$?
+            if [ "$rc" -eq 0 ] || [ "$rc" -eq 3 ]; then published=true; break; fi
+            echo "::warning::store push rejected (attempt $attempt) — refetching and retrying"
+            sleep $((attempt * 2))
+          done
+
           j() { python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get(sys.argv[2],""))' "$RUNNER_TEMP/store.json" "$1" 2>/dev/null; }
-          { echo "ok=$(j ok)"; echo "id=$(j id)"; echo "changed_pages=$(j changed_pages)"; } >> "$GITHUB_OUTPUT"
+          { echo "ok=$(j ok)"; echo "id=$(j id)"; echo "changed_pages=$(j changed_pages)"; echo "published=$published"; } >> "$GITHUB_OUTPUT"
 
-      - name: Commit + push store
-        if: steps.parse.outputs.ok == 'true' && steps.build.outputs.ok == 'True'
-        working-directory: ${{ runner.temp }}/store
-        env:
-          STORE: ${{ inputs.store_branch }}
-        run: |
-          git add -A
-          git -c user.email='bot@latex-diff-viewer' -c user.name='latex-diff-viewer' \
-            commit -m "diff ${{ steps.build.outputs.id }} (issue #${{ inputs.issue_number }})" \
-            || { echo "nothing to commit"; exit 0; }
-          git push origin "HEAD:$STORE"
-
+      # Always leave a comment — success, bad title, or failure — so the requester
+      # is never left without a response.
       - name: Comment on the issue
-        if: steps.parse.outputs.ok == 'true'
+        if: ${{ always() }}
         uses: actions/github-script@v7
         env:
+          PARSED: ${{ steps.parse.outputs.ok }}
           OK: ${{ steps.build.outputs.ok }}
+          PUBLISHED: ${{ steps.build.outputs.published }}
           DIFF_ID: ${{ steps.build.outputs.id }}
           CHANGED: ${{ steps.build.outputs.changed_pages }}
         with:
           script: |
-            const ok = process.env.OK === 'True';
-            const id = process.env.DIFF_ID || '';
             const { owner, repo } = context.repo;
-            const url = `https://${owner}.github.io/${repo}/?diff=${encodeURIComponent(id)}`;
-            const body = ok
-              ? `📄 Built \`${id}\` — **${process.env.CHANGED} changed page(s)**.\n\n`
-                + `View it here: ${url}\n\n<sub>GitHub Pages may take a minute to refresh.</sub>`
-              : `⚠️ Couldn't build a diff from this title. Use \`latexdiff <base>..<head>\` `
-                + `with two commits that exist in the repo.`;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const parsed = process.env.PARSED === 'true';
+            const ok = process.env.OK === 'True' && process.env.PUBLISHED === 'true';
+            const id = process.env.DIFF_ID || '';
+            let body;
+            if (!parsed) {
+              body = "⚠️ I couldn't find a `base..head` pair in the title. "
+                + "Rename this issue to e.g. `latexdiff v1..HEAD` (two commits, branches, "
+                + "or tags) and I'll build the diff.";
+            } else if (ok) {
+              const url = `https://${owner}.github.io/${repo}/?diff=${encodeURIComponent(id)}`;
+              body = `📄 Built \`${id}\` — **${process.env.CHANGED} changed page(s)**.\n\n`
+                + `View it here: ${url}\n\n<sub>GitHub Pages may take a minute to refresh.</sub>`;
+            } else {
+              body = "❌ Sorry — I couldn't build or publish this diff. The commits may not "
+                + "exist, the document may not compile, or publishing hit a problem.\n\n"
+                + `Details in the run log: ${runUrl}`;
+            }
             await github.rest.issues.createComment(
               { owner, repo, issue_number: ${{ inputs.issue_number }}, body });
