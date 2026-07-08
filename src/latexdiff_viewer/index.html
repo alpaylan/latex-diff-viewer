@@ -6,36 +6,28 @@
 <title>LaTeX diff viewer</title>
 <style>
   :root {
-    --bg: #f6f7f9;
-    --panel: #ffffff;
-    --border: #e2e5ea;
-    --ink: #1f2329;
-    --muted: #6b7280;
-    --accent: #2563eb;
-    --accent-ink: #ffffff;
-    --add: #1a7f37;
-    --del: #cf222e;
-    --building: #9a6700;
+    --bg: #f6f7f9; --panel: #ffffff; --border: #e2e5ea; --ink: #1f2329;
+    --muted: #6b7280; --accent: #2563eb; --accent-ink: #ffffff;
+    --add: #1a7f37; --del: #cf222e; --building: #9a6700;
     --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.1);
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
   body {
     font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    color: var(--ink); background: var(--bg);
-    display: flex; flex-direction: column;
+    color: var(--ink); background: var(--bg); display: flex; flex-direction: column;
+    overflow: hidden;
   }
   header {
     background: var(--panel); border-bottom: 1px solid var(--border);
-    padding: 10px 18px; display: flex; align-items: center; gap: 14px;
-    flex-wrap: wrap;
+    padding: 10px 18px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
   }
   header h1 { font-size: 15px; margin: 0; font-weight: 650; letter-spacing: .2px; }
   header h1 .sub { color: var(--muted); font-weight: 400; margin-left: 8px; font-size: 13px; }
-  .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+  .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   select {
     font: inherit; padding: 6px 8px; border: 1px solid var(--border);
-    border-radius: 7px; background: #fff; color: var(--ink); max-width: 360px;
+    border-radius: 7px; background: #fff; color: var(--ink); max-width: 300px;
   }
   .lbl { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
   button {
@@ -48,160 +40,158 @@
   button.icon { padding: 7px 9px; }
   button:disabled { opacity: .5; cursor: not-allowed; }
   #reqissue { text-decoration: none; }
-  main { flex: 1; display: flex; min-height: 0; }
+  .legend { display: flex; gap: 14px; align-items: center; font-size: 12px; color: var(--muted); margin-left: auto; }
+  .legend .ins { color: var(--add); font-weight: 600; }
+  .legend .del { color: var(--del); font-weight: 600; text-decoration: line-through; }
+  .only-mobile { display: none; }
+
+  main { flex: 1; display: flex; min-height: 0; position: relative; }
   aside {
     width: 340px; min-width: 280px; border-right: 1px solid var(--border);
-    background: var(--panel); overflow-y: auto; padding: 12px;
+    background: var(--panel); overflow-y: auto; padding: 12px; z-index: 20;
   }
-  aside h2 {
-    font-size: 12px; text-transform: uppercase; letter-spacing: .5px;
-    color: var(--muted); margin: 4px 4px 10px;
+  aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 12px 4px 8px; }
+  .changes {
+    width: 232px; min-width: 200px; border-left: 1px solid var(--border);
+    background: var(--panel); overflow-y: auto; padding: 10px; z-index: 20;
   }
-  .changes { width: 232px; min-width: 200px; border-right: 1px solid var(--border);
-    background: var(--panel); overflow-y: auto; padding: 10px; }
-  .changes h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .5px;
-    color: var(--muted); margin: 2px 2px 10px; }
-  .chg { display: flex; align-items: baseline; gap: 7px; padding: 6px 8px;
-    border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .changes.empty { display: none; }
+  .changes h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 2px 2px 10px; }
+  .chg { display: flex; align-items: baseline; gap: 7px; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 13px; }
   .chg:hover { background: #f0f2f5; }
   .chg .sym { font-weight: 800; width: 10px; text-align: center; }
   .chg.add .sym { color: var(--add); }
   .chg.del .sym { color: var(--del); }
   .chg.both .sym { color: #6f42c1; }
-  .chg .pg { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
-  .changes .none { color: var(--muted); font-size: 12px; padding: 8px; }
-  .viewer { flex: 1; min-width: 0; background: #525659; position: relative; }
-  .viewer iframe { width: 100%; height: 100%; border: 0; }
+
+  .viewer { flex: 1; min-width: 0; background: #525659; position: relative; overflow: hidden; }
+  #pdfview { position: absolute; inset: 0; overflow: auto; display: none; padding: 12px;
+    -webkit-overflow-scrolling: touch; }
+  .pdfpage { background: #fff; margin: 0 auto 12px; box-shadow: 0 1px 5px rgba(0,0,0,.45); }
+  .pdfpage canvas { display: block; }
   .viewer .empty {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
     color: #cbd0d6; text-align: center; padding: 24px; flex-direction: column; gap: 8px;
   }
+  .viewer .empty a { color: #9ec1ff; }
+  .zoombar { position: absolute; right: 12px; bottom: 12px; display: none; gap: 6px; z-index: 6; }
+  .zoombar button { background: rgba(31,35,41,.86); color: #fff; border: none; border-radius: 9px;
+    width: 40px; height: 40px; font-size: 18px; padding: 0; }
+
   .card {
-    border: 1px solid var(--border); border-radius: 9px; padding: 10px 11px;
-    margin-bottom: 9px; background: #fff; cursor: pointer; box-shadow: var(--shadow);
-    transition: border-color .12s;
+    border: 1px solid var(--border); border-radius: 9px; padding: 10px 11px; margin-bottom: 9px;
+    background: #fff; cursor: pointer; box-shadow: var(--shadow); transition: border-color .12s;
   }
   .card:hover { border-color: #c5cbd3; }
   .card.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(37,99,235,.15); }
   .card.current { background: linear-gradient(180deg,#f5f8ff,#fff); border-color: #c7d6f7; }
-  #current h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .5px;
-    color: var(--muted); margin: 4px 4px 10px; }
+  #current h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 4px 4px 10px; }
   .card .row1 { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
-  .badge {
-    font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 20px;
-    text-transform: uppercase; letter-spacing: .3px;
-  }
+  .badge { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 20px; text-transform: uppercase; letter-spacing: .3px; }
   .badge.done { background: #e7f5ec; color: var(--add); }
   .badge.building, .badge.queued { background: #fff5d9; color: var(--building); }
   .badge.error { background: #fde8e8; color: var(--del); }
-  .card .pair { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--ink); }
-  .card .subj { color: var(--muted); font-size: 12px; margin-top: 3px;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .card .subj.big { color: var(--ink); font-size: 13px; font-weight: 600; margin-top: 6px; }
-  .card .subj.sub { margin-top: 2px; }
-  .kind { font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase;
-    padding: 2px 6px; border-radius: 5px; margin-left: auto; }
+  .kind { font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; padding: 2px 6px; border-radius: 5px; margin-left: auto; }
   .kind.diff { background: #eef2ff; color: #3949ab; }
   .kind.full { background: #eef7ee; color: #2e7d32; }
+  .card .subj { color: var(--muted); font-size: 12px; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .subj.big { color: var(--ink); font-size: 13px; font-weight: 600; margin-top: 6px; }
+  .card .subj.sub { margin-top: 2px; }
   .card .meta { color: var(--muted); font-size: 11px; margin-top: 5px; display: flex; gap: 8px; }
-  .card .err { color: var(--del); font-size: 12px; margin-top: 6px; white-space: pre-wrap;
-    font-family: ui-monospace, monospace; max-height: 80px; overflow: auto; }
+  .card .err { color: var(--del); font-size: 12px; margin-top: 6px; white-space: pre-wrap; font-family: ui-monospace, monospace; max-height: 80px; overflow: auto; }
   .card .actions { margin-top: 7px; display: flex; gap: 6px; }
   .card .actions button { padding: 3px 8px; font-size: 12px; }
-  .spinner {
-    width: 12px; height: 12px; border: 2px solid #e8d9a0; border-top-color: var(--building);
-    border-radius: 50%; display: inline-block; animation: spin .8s linear infinite;
-  }
+  .spinner { width: 12px; height: 12px; border: 2px solid #e8d9a0; border-top-color: var(--building); border-radius: 50%; display: inline-block; animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .legend { display: flex; gap: 14px; align-items: center; font-size: 12px; color: var(--muted); }
-  .legend .ins { color: var(--add); font-weight: 600; }
-  .legend .del { color: var(--del); font-weight: 600; text-decoration: line-through; }
   .empty-list { color: var(--muted); font-size: 13px; padding: 10px 4px; }
-  #toast {
-    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
-    background: #1f2329; color: #fff; padding: 9px 16px; border-radius: 8px;
-    font-size: 13px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 50;
-  }
+  #backdrop { display: none; position: absolute; inset: 0; background: rgba(0,0,0,.4); z-index: 15; }
+  #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #1f2329; color: #fff; padding: 9px 16px; border-radius: 8px; font-size: 13px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 50; }
   #toast.show { opacity: .96; }
 
-  /* --- mobile: stack the columns and let the PDF take the screen ---------- */
+  /* --- mobile: full-screen PDF; diffs & changes become slide-in drawers ---- */
   @media (max-width: 820px) {
-    header { padding: 8px 12px; gap: 8px 10px; }
-    header h1 { font-size: 14px; width: 100%; }
-    .controls, .reqbar { margin-left: 0; width: 100%; }
-    select { max-width: 44vw; flex: 1; }
-    main { flex-direction: column; }
-    aside {
-      width: 100%; min-width: 0; max-height: 38vh;
-      border-right: none; border-bottom: 1px solid var(--border);
+    .zoombar { display: flex; }
+    header { padding: 8px 10px; gap: 8px; }
+    header h1 { font-size: 14px; }
+    header h1 .sub { display: none; }
+    .legend { display: none; }
+    .only-mobile { display: inline-block; }
+    aside, .changes {
+      position: absolute; top: 0; bottom: 0; height: 100%; max-width: 86vw;
+      transition: transform .22s ease; box-shadow: 0 0 24px rgba(0,0,0,.28);
     }
-    .changes {
-      width: 100%; min-width: 0; max-height: 28vh; order: 3;
-      border-right: none; border-top: 1px solid var(--border);
-    }
-    .viewer { order: 2; min-height: 62vh; }
-    .card .actions button { padding: 6px 10px; }  /* larger tap targets */
+    aside { width: 320px; left: 0; transform: translateX(-102%); }
+    aside.open { transform: translateX(0); }
+    .changes { width: 300px; right: 0; border-left: 1px solid var(--border); transform: translateX(102%); }
+    .changes.open { transform: translateX(0); }
+    .changes.empty.open { display: block; }   /* allow opening even if class 'empty' */
+    .chg { padding: 12px 10px; }               /* bigger tap targets */
+    .card .actions button { padding: 7px 12px; }
   }
 </style>
 </head>
 <body>
 <header>
+  <button class="only-mobile" id="tg-diffs" title="Diffs">☰</button>
   <h1>LaTeX diff viewer <span class="sub" id="project">git-latexdiff</span></h1>
-  <div class="legend">
-    <span class="ins">added</span><span class="del">removed</span>
-  </div>
-  <div class="controls" id="controls" hidden>
-    <span class="lbl">Base</span>
-    <select id="base"></select>
-    <button class="icon" id="swap" title="Swap base / compare">⇄</button>
-    <span class="lbl">Compare</span>
-    <select id="compare"></select>
-    <button class="primary" id="gen">Generate diff</button>
-    <button id="full" title="Render the Compare commit as a plain PDF, no diff markup">Full PDF</button>
-    <button id="reqissue" hidden title="Open a GitHub issue that builds this diff in CI">Request diff ↗</button>
-  </div>
+  <div class="legend"><span class="ins">added</span><span class="del">removed</span></div>
+  <button class="only-mobile" id="tg-pages" hidden title="Changed pages">Pages</button>
 </header>
 <main>
-  <aside>
+  <aside id="aside">
+    <div class="controls" id="controls" hidden>
+      <span class="lbl">Base</span>
+      <select id="base"></select>
+      <button class="icon" id="swap" title="Swap base / compare">⇄</button>
+      <span class="lbl">Compare</span>
+      <select id="compare"></select>
+      <button class="primary" id="gen">Generate diff</button>
+      <button id="full" title="Render the Compare commit as a plain PDF, no diff markup">Full PDF</button>
+      <button id="reqissue" hidden title="Open a GitHub issue that builds this diff in CI">Request diff ↗</button>
+    </div>
     <div id="current"></div>
     <h2>Diffs</h2>
     <div id="list"></div>
   </aside>
-  <nav class="changes" id="changes" hidden></nav>
   <section class="viewer">
-    <iframe id="pdf" style="display:none"></iframe>
+    <div id="pdfview"></div>
+    <div class="zoombar">
+      <button id="zoom-out" title="Zoom out">−</button>
+      <button id="zoom-fit" title="Fit width">⤢</button>
+      <button id="zoom-in" title="Zoom in">+</button>
+    </div>
     <div class="empty" id="viewer-empty">
       <div style="font-size:32px">📄</div>
-      <div>Pick a diff on the left to view it.<br>
-      <span style="opacity:.8">When viewing a diff, a <b>Changes</b> list appears —
-      click any entry to jump straight to it.</span></div>
+      <div>Pick a diff to view it.<br>
+      <span style="opacity:.8">The <b>Changed pages</b> list lets you jump straight to each change.</span></div>
     </div>
   </section>
+  <nav class="changes empty" id="changes"></nav>
+  <div id="backdrop"></div>
 </main>
 <div id="toast"></div>
 
-<script>
+<script type="module">
+import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4/build/pdf.min.mjs";
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  "https://cdn.jsdelivr.net/npm/pdfjs-dist@4/build/pdf.worker.min.mjs";
+
 const $ = s => document.querySelector(s);
 let commits = [];
 let activeId = null;
-let currentPdfBase = null;
 let pollTimer = null;
 let autoViewed = false;
-let STATIC = false;         // true when served as a static GitHub Pages site
-let MANIFEST = null;        // the manifest.json in static mode
-let REPO_FULL = null;       // "owner/repo" — enables "Request diff" issue links
+let STATIC = false, MANIFEST = null, REPO_FULL = null;
+let BRANCHES = [], TAGS = [], OPEN_ISSUES = [];
 
 function toast(msg) {
   const t = $("#toast");
   t.textContent = msg; t.classList.add("show");
   clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2600);
 }
-
 function optionLabel(c) { return `${c.date}  ·  ${c.subject}`; }
-
-// In live mode the server streams the PDF at /pdf/<id>; in static mode each
-// diff carries its own filename sitting next to index.html.
 function pdfUrl(d) { return STATIC ? d.pdf : "/pdf/" + encodeURIComponent(d.id); }
+function esc(s) { return (s || "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;" }[c])); }
 
 function downloadPdf(d) {
   const a = document.createElement("a");
@@ -210,169 +200,188 @@ function downloadPdf(d) {
   document.body.appendChild(a); a.click(); a.remove();
 }
 
-function esc(s) {
-  return (s || "").replace(/[&<>"]/g, c =>
-    ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;" }[c]));
+// ---- PDF.js viewer -------------------------------------------------------
+
+let pdfDoc = null, pageDivs = [], zoom = 1, io = null, viewToken = 0;
+
+function fitWidthCss() { return Math.max(200, $("#pdfview").clientWidth - 24); }
+
+async function loadPdf(url) {
+  const token = ++viewToken;                 // guards against overlapping loads
+  const wrap = $("#pdfview");
+  if (io) { io.disconnect(); io = null; }
+  wrap.innerHTML = ""; pageDivs = [];
+  $("#viewer-empty").style.display = "none";
+  wrap.style.display = "block";
+  let doc;
+  try {
+    doc = await pdfjsLib.getDocument(url).promise;
+  } catch (e) {
+    wrap.style.display = "none";
+    const el = $("#viewer-empty"); el.style.display = "flex";
+    el.innerHTML = `<div style="font-size:32px">📄</div>
+      <div>Couldn't render inline.<br><a href="${url}" target="_blank"><b>Open the PDF ↗</b></a></div>`;
+    return;
+  }
+  if (token !== viewToken) return;
+  pdfDoc = doc;
+  const p1 = await doc.getPage(1);
+  const base = p1.getViewport({ scale: 1 });
+  for (let n = 1; n <= doc.numPages; n++) {
+    const d = document.createElement("div");
+    d.className = "pdfpage"; d.dataset.page = n;
+    const cssW = fitWidthCss() * zoom;
+    d.style.width = cssW + "px";
+    d.style.height = (cssW * base.height / base.width) + "px";  // placeholder
+    wrap.appendChild(d); pageDivs.push(d);
+  }
+  io = new IntersectionObserver(es => {
+    for (const e of es) if (e.isIntersecting) renderPage(e.target);
+  }, { root: wrap, rootMargin: "300px 0px" });
+  pageDivs.forEach(d => io.observe(d));
 }
 
-// ---- "request a diff" via a prefilled GitHub issue ------------------------
+async function renderPage(div) {
+  if (!pdfDoc || div.dataset.done === "1" || div.dataset.busy === "1") return;
+  div.dataset.busy = "1";
+  const token = viewToken;
+  try {
+    const page = await pdfDoc.getPage(+div.dataset.page);
+    if (token !== viewToken) return;
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = fitWidthCss() * zoom;
+    const scale = cssW / page.getViewport({ scale: 1 }).width;
+    const vp = page.getViewport({ scale: scale * dpr });
+    const canvas = document.createElement("canvas");
+    canvas.width = vp.width; canvas.height = vp.height;
+    canvas.style.width = cssW + "px"; canvas.style.height = (vp.height / dpr) + "px";
+    await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
+    if (token !== viewToken) return;
+    div.style.height = ""; div.innerHTML = ""; div.appendChild(canvas);
+    div.dataset.done = "1";
+  } catch (e) { /* leave placeholder */ }
+  finally { div.dataset.busy = "0"; }
+}
+
+function relayout() {                          // re-fit after zoom / resize
+  for (const d of pageDivs) {
+    const cssW = fitWidthCss() * zoom;
+    d.dataset.done = "0"; d.dataset.busy = "0"; d.innerHTML = "";
+    d.style.width = cssW + "px";
+    // keep aspect from current width:height ratio if known, else leave
+  }
+  // render whatever is in view now
+  const wrap = $("#pdfview"), top = wrap.scrollTop, bot = top + wrap.clientHeight;
+  for (const d of pageDivs) {
+    if (d.offsetTop < bot + 300 && d.offsetTop + d.offsetHeight > top - 300) renderPage(d);
+  }
+}
+function setZoom(z) { zoom = Math.min(4, Math.max(0.4, z)); relayout(); }
+
+function jumpToPage(n) {
+  const d = pageDivs[n - 1];
+  if (d) { d.scrollIntoView({ behavior: "smooth", block: "start" }); renderPage(d); }
+}
+
+// ---- mobile drawers ------------------------------------------------------
+
+function openDrawer(which) {
+  closeDrawers();
+  (which === "pages" ? $("#changes") : $("#aside")).classList.add("open");
+  $("#backdrop").style.display = "block";
+}
+function closeDrawers() {
+  $("#aside").classList.remove("open"); $("#changes").classList.remove("open");
+  $("#backdrop").style.display = "none";
+}
+const isMobile = () => window.matchMedia("(max-width: 820px)").matches;
+
+// ---- request-a-diff via a GitHub issue -----------------------------------
 
 function issueUrl(base, head) {
-  const title = `latexdiff ${base}..${head}`;
   return `https://github.com/${REPO_FULL}/issues/new`
-    + `?title=${encodeURIComponent(title)}&labels=latexdiff`;
+    + `?title=${encodeURIComponent(`latexdiff ${base}..${head}`)}&labels=latexdiff`;
 }
-
 function requestDiff(base, head) {
-  base = (base || "").trim(); head = (head || "").trim();
   if (!REPO_FULL) { toast("No GitHub repo configured"); return; }
-  if (!base || !head || base === head) { toast("Enter base..compare"); return; }
   window.open(issueUrl(base, head), "_blank");
 }
-
-// Static picker action (synchronous — uses cached manifest + issues, so the
-// window.open stays inside the click gesture and isn't popup-blocked):
-//   built        -> view it
-//   open issue   -> open that in-progress issue (don't create a duplicate)
-//   neither      -> open a new request issue
+function findDiff(spec) {
+  if (!spec || !spec.includes("..") || !MANIFEST) return null;
+  const [b, h] = spec.split("..").map(s => s.trim());
+  const pre = (a, x) => a && x && (a.startsWith(x) || x.startsWith(a));
+  return (MANIFEST.diffs || []).find(d => d.id === spec || (pre(d.old, b) && pre(d.new, h))) || null;
+}
+function openIssueFor(base, head) {
+  const pair = `${base}..${head}`;
+  return OPEN_ISSUES.find(i => i.title.includes(pair)) || null;
+}
 function requestOrView(base, head) {
   base = (base || "").trim(); head = (head || "").trim();
   if (!base || !head || base === head) { toast("Pick two different commits"); return; }
   const built = findDiff(`${base}..${head}`);
   if (built) { view(built); return; }
   const inProgress = openIssueFor(base, head);
-  if (inProgress) {
-    toast("Already being built — opening the request");
-    window.open(inProgress.url, "_blank");
-    return;
-  }
+  if (inProgress) { toast("Already being built — opening the request"); window.open(inProgress.url, "_blank"); return; }
   requestDiff(base, head);
 }
-
-// Three-state button reflecting the selected pair.
 function updateDiffButton() {
-  const rq = $("#reqissue");
-  if (!rq) return;
+  const rq = $("#reqissue"); if (!rq) return;
   const b = $("#base").value, h = $("#compare").value;
-  if (findDiff(`${b}..${h}`)) {
-    rq.textContent = "Show diff"; rq.classList.add("primary");
-    rq.title = "View this diff (already built)";
-  } else if (openIssueFor(b, h)) {
-    rq.textContent = "Building… ↗"; rq.classList.remove("primary");
-    rq.title = "Already requested — open the in-progress issue";
-  } else {
-    rq.textContent = "Request diff ↗"; rq.classList.remove("primary");
-    rq.title = "Open a GitHub issue that builds this diff in CI";
-  }
+  if (findDiff(`${b}..${h}`)) { rq.textContent = "Show diff"; rq.classList.add("primary"); rq.title = "View this diff (already built)"; }
+  else if (openIssueFor(b, h)) { rq.textContent = "Building… ↗"; rq.classList.remove("primary"); rq.title = "Already requested — open the in-progress issue"; }
+  else { rq.textContent = "Request diff ↗"; rq.classList.remove("primary"); rq.title = "Open a GitHub issue that builds this diff in CI"; }
 }
-
-// Lenient match of a "a..b" spec against manifest entries (accept sha prefixes).
-function findDiff(spec) {
-  if (!spec || !spec.includes("..") || !MANIFEST) return null;
-  const [b, h] = spec.split("..").map(s => s.trim());
-  const pre = (a, x) => a && x && (a.startsWith(x) || x.startsWith(a));
-  return (MANIFEST.diffs || []).find(d =>
-    d.id === spec || (pre(d.old, b) && pre(d.new, h))) || null;
-}
-
 function showRequestPrompt(base, head) {
-  const el = $("#viewer-empty");
-  el.style.display = "flex"; $("#pdf").style.display = "none";
+  const el = $("#viewer-empty"); el.style.display = "flex"; $("#pdfview").style.display = "none";
   const link = REPO_FULL
-    ? `<a href="${issueUrl(base, head)}" target="_blank"><b>Request it ↗</b></a>
-       — opens a GitHub issue that builds it in CI; reload here once it's done.`
+    ? `<a href="${issueUrl(base, head)}" target="_blank"><b>Request it ↗</b></a> — builds it in CI; reload once done.`
     : "No GitHub repo is configured for on-demand builds.";
   el.innerHTML = `<div style="font-size:32px">🚧</div>
     <div>No diff built yet for <code>${esc(base)}..${esc(head)}</code>.<br>${link}</div>`;
 }
 
-// ---- data source (live server vs static manifest) -------------------------
+// ---- data source ---------------------------------------------------------
 
 async function fetchDiffs() {
   if (STATIC) return (MANIFEST && MANIFEST.diffs) || [];
-  const r = await fetch("/api/diffs");
-  const data = await r.json();
-  return data.diffs || [];
+  const r = await fetch("/api/diffs"); return (await r.json()).diffs || [];
 }
-
 function fillCommitSelects() {
   const base = $("#base"), compare = $("#compare");
   base.innerHTML = ""; compare.innerHTML = "";
   for (const c of commits) {
-    const o1 = document.createElement("option");
-    o1.value = c.short; o1.textContent = optionLabel(c); base.appendChild(o1);
-    compare.appendChild(o1.cloneNode(true));
+    const o = document.createElement("option");
+    o.value = c.short; o.textContent = optionLabel(c);
+    base.appendChild(o); compare.appendChild(o.cloneNode(true));
   }
-  if (commits.length >= 2) {
-    compare.value = commits[0].short;
-    base.value = commits[1].short;
-  }
+  if (commits.length >= 2) { compare.value = commits[0].short; base.value = commits[1].short; }
 }
-
 async function loadCommits() {
-  const r = await fetch("/api/commits");
-  const data = await r.json();
+  const r = await fetch("/api/commits"); const data = await r.json();
   if (data.error) { toast("git log failed"); return; }
-  commits = data.commits;
-  fillCommitSelects();
+  commits = data.commits; fillCommitSelects();
 }
-
-// Static (Pages) mode has no backend, but a public repo's commits, branches and
-// tags are all available from the GitHub REST API (CORS-enabled, no auth) — so
-// the picker can reference any of them.
-let BRANCHES = [], TAGS = [];
-let OPEN_ISSUES = [];       // cached open issues, to detect in-progress requests
-
-// Open (non-PR) issues, so the picker can tell "already being built" from "new".
-async function loadOpenIssues(repoFull) {
-  try {
-    const r = await fetch(`https://api.github.com/repos/${repoFull}/issues?state=open&per_page=100`,
-      { headers: { "Accept": "application/vnd.github+json" } });
-    if (!r.ok) return;
-    const d = await r.json();
-    OPEN_ISSUES = Array.isArray(d)
-      ? d.filter(i => !i.pull_request).map(i => ({ title: i.title || "", url: i.html_url }))
-      : [];
-  } catch (e) { /* ignore — falls back to plain request */ }
-}
-
-// An open issue whose title carries this pair = a render already in progress.
-function openIssueFor(base, head) {
-  const pair = `${base}..${head}`;
-  return OPEN_ISSUES.find(i => i.title.includes(pair)) || null;
-}
-
 async function loadRefsFromGitHub(repoFull) {
-  const gh = p => fetch(`https://api.github.com/repos/${repoFull}/${p}`,
-    { headers: { "Accept": "application/vnd.github+json" } });
+  const gh = p => fetch(`https://api.github.com/repos/${repoFull}/${p}`, { headers: { "Accept": "application/vnd.github+json" } });
   try {
-    const [rc, rb, rt] = await Promise.all([
-      gh("commits?per_page=100"), gh("branches?per_page=100"), gh("tags?per_page=100"),
-    ]);
+    const [rc, rb, rt] = await Promise.all([gh("commits?per_page=100"), gh("branches?per_page=100"), gh("tags?per_page=100")]);
     if (!rc.ok) return false;
     const cd = await rc.json();
     if (!Array.isArray(cd) || !cd.length) return false;
-    commits = cd.map(c => ({
-      hash: c.sha, short: c.sha.slice(0, 7),
+    commits = cd.map(c => ({ hash: c.sha, short: c.sha.slice(0, 7),
       subject: ((c.commit && c.commit.message) || "").split("\n")[0],
-      date: (((c.commit && c.commit.author && c.commit.author.date)) || "")
-              .slice(0, 16).replace("T", " "),
-    }));
+      date: (((c.commit && c.commit.author && c.commit.author.date)) || "").slice(0, 16).replace("T", " ") }));
     BRANCHES = rb.ok ? (await rb.json()).map(b => b.name) : [];
     TAGS = rt.ok ? (await rt.json()).map(t => t.name) : [];
-    fillRefSelects();
-    return true;
+    fillRefSelects(); return true;
   } catch (e) { return false; }
 }
-
 function fillRefSelects() {
   const group = (sel, label, items) => {
     if (!items.length) return;
     const g = document.createElement("optgroup"); g.label = label;
-    for (const it of items) {
-      const o = document.createElement("option");
-      o.value = it.value; o.textContent = it.label; g.appendChild(o);
-    }
+    for (const it of items) { const o = document.createElement("option"); o.value = it.value; o.textContent = it.label; g.appendChild(o); }
     sel.appendChild(g);
   };
   for (const sel of [$("#base"), $("#compare")]) {
@@ -381,21 +390,22 @@ function fillRefSelects() {
     group(sel, "Tags", TAGS.map(n => ({ value: n, label: n })));
     group(sel, "Commits", commits.map(c => ({ value: c.short, label: optionLabel(c) })));
   }
-  if (commits.length >= 2) {
-    $("#compare").value = commits[0].short;
-    $("#base").value = commits[1].short;
-  }
+  if (commits.length >= 2) { $("#compare").value = commits[0].short; $("#base").value = commits[1].short; }
+}
+async function loadOpenIssues(repoFull) {
+  try {
+    const r = await fetch(`https://api.github.com/repos/${repoFull}/issues?state=open&per_page=100`, { headers: { "Accept": "application/vnd.github+json" } });
+    if (!r.ok) return;
+    const d = await r.json();
+    OPEN_ISSUES = Array.isArray(d) ? d.filter(i => !i.pull_request).map(i => ({ title: i.title || "", url: i.html_url })) : [];
+  } catch (e) {}
 }
 
-// ---- rendering (shared by both modes) -------------------------------------
+// ---- rendering -----------------------------------------------------------
 
 function renderList(diffs) {
   const list = $("#list");
-  if (!diffs.length) {
-    list.innerHTML = '<div class="empty-list">No diffs yet.'
-      + (STATIC ? '' : ' Generate one above.') + '</div>';
-    return;
-  }
+  if (!diffs.length) { list.innerHTML = `<div class="empty-list">No diffs yet.${STATIC ? "" : " Generate one above."}</div>`; return; }
   list.innerHTML = "";
   for (const d of diffs) {
     const card = document.createElement("div");
@@ -403,210 +413,129 @@ function renderList(diffs) {
     const building = d.status === "building" || d.status === "queued";
     const spin = building ? '<span class="spinner"></span> ' : "";
     const full = d.kind === "full";
-
     const title = full ? (d.subject || "Full PDF") : (d.new_subject || "Compare");
-    const line2 = full
-      ? `📅 ${esc(d.date || "")}`
-      : `↤ vs ${esc(d.old_subject || "")}${d.old_date ? " · " + esc(d.old_date) : ""}`;
-    const stamp = full ? "" : (d.new_date || "");
-
-    let inner = `
-      <div class="row1">
-        <span class="badge ${d.status}">${spin}${d.status}</span>
-        <span class="kind ${full ? "full" : "diff"}">${full ? "full pdf" : "diff"}</span>
-      </div>
+    const line2 = full ? `📅 ${esc(d.date || "")}` : `↤ vs ${esc(d.old_subject || "")}${d.old_date ? " · " + esc(d.old_date) : ""}`;
+    let inner = `<div class="row1"><span class="badge ${d.status}">${spin}${d.status}</span>
+        <span class="kind ${full ? "full" : "diff"}">${full ? "full pdf" : "diff"}</span></div>
       <div class="subj big" title="${esc(title)}">${esc(title)}</div>
       <div class="subj sub">${line2}</div>
-      <div class="meta">
-        ${stamp ? `<span>${esc(stamp)}</span>` : ""}
-        ${d.elapsed ? `<span>⏱ ${d.elapsed}s</span>` : ""}
-        ${d.changes && d.changes.length ? `<span>${d.changes.length} changed pp.</span>` : ""}
-      </div>`;
-    if (d.status === "error" && d.error) {
-      inner += `<div class="err">${esc(d.error)}</div>`;
-      if (d.log_tail) inner += `<div class="err">${esc(d.log_tail.split("\n").slice(-8).join("\n"))}</div>`;
-    }
+      <div class="meta">${d.elapsed ? `<span>⏱ ${d.elapsed}s</span>` : ""}${d.changes && d.changes.length ? `<span>${d.changes.length} changed pp.</span>` : ""}</div>`;
+    if (d.status === "error" && d.error) { inner += `<div class="err">${esc(d.error)}</div>`; if (d.log_tail) inner += `<div class="err">${esc(d.log_tail.split("\n").slice(-8).join("\n"))}</div>`; }
     inner += `<div class="actions">`;
-    if (d.status === "done") {
-      inner += `<button data-act="tab">Open ↗</button>
-                <button data-act="download">Download</button>`;
-    }
+    if (d.status === "done") inner += `<button data-act="tab">Open ↗</button><button data-act="download">Download</button>`;
     if (!STATIC && d.status === "error") inner += `<button data-act="retry">Retry</button>`;
     if (!STATIC) inner += `<button data-act="del">Delete</button>`;
     inner += `</div>`;
     card.innerHTML = inner;
-
     card.addEventListener("click", e => {
       const act = e.target.getAttribute("data-act");
-      if (!act && d.status === "done") { view(d); }
-      else if (act === "tab") { window.open(pdfUrl(d), "_blank"); }
-      else if (act === "download") { downloadPdf(d); }
-      else if (act === "retry") { d.kind === "full" ? generateFull(d.commit) : generate(d.old, d.new); }
-      else if (act === "del") { del(d.id); }
+      if (!act && d.status === "done") view(d);
+      else if (act === "tab") window.open(pdfUrl(d), "_blank");
+      else if (act === "download") downloadPdf(d);
+      else if (act === "retry") d.kind === "full" ? generateFull(d.commit) : generate(d.old, d.new);
+      else if (act === "del") del(d.id);
     });
     list.appendChild(card);
   }
 }
-
-function view(d) {
-  activeId = d.id;
-  currentPdfBase = pdfUrl(d);
-  const f = $("#pdf");
-  f.src = currentPdfBase + "#view=FitH";
-  f.style.display = "block";
-  $("#viewer-empty").style.display = "none";
-  renderChanges(d);
-  if (STATIC) {
-    // Deep-link the current diff so a refresh (or shared URL) reopens it.
-    const q = (d.kind !== "full" && (d.id || "").includes(".."))
-      ? "?diff=" + encodeURIComponent(d.id) : location.pathname;
-    history.replaceState(null, "", q);
-    renderAll(MANIFEST.diffs);
-  } else {
-    refresh();
-  }
-}
-
 function renderCurrent(d) {
   const el = $("#current");
   if (!d) { el.innerHTML = ""; return; }
   const building = d.status === "building" || d.status === "queued";
   const spin = building ? '<span class="spinner"></span> ' : "";
-  const subj = d.subject || "latest commit";
   let inner = `<h2>Current draft</h2>
-    <div class="card current ${d.id === activeId ? "active" : ""}" id="current-card" title="Full PDF of the latest commit">
-      <div class="row1">
-        <span class="badge ${d.status}">${spin}${d.status}</span>
-        <span class="kind full">full pdf</span>
-      </div>
+    <div class="card current ${d.id === activeId ? "active" : ""}" id="current-card">
+      <div class="row1"><span class="badge ${d.status}">${spin}${d.status}</span><span class="kind full">full pdf</span></div>
       <div class="subj big">📄 Latest draft</div>
-      <div class="subj sub">${esc(subj)}${d.date ? " · " + esc(d.date) : ""}</div>`;
+      <div class="subj sub">${esc(d.subject || "latest commit")}${d.date ? " · " + esc(d.date) : ""}</div>`;
   if (d.status === "error" && d.error) inner += `<div class="err">${esc(d.error)}</div>`;
   inner += `</div>`;
   el.innerHTML = inner;
   $("#current-card").addEventListener("click", () => { if (d.status === "done") view(d); });
 }
-
 function renderChanges(d) {
-  const panel = $("#changes");
+  const panel = $("#changes"), tg = $("#tg-pages");
   const items = (d && d.kind !== "full" && d.changes) ? d.changes : [];
-  if (!items.length) { panel.hidden = true; panel.innerHTML = ""; return; }
-  panel.hidden = false;
+  panel.classList.toggle("empty", items.length === 0);
+  tg.hidden = items.length === 0;
+  if (!items.length) { panel.innerHTML = ""; return; }
+  tg.textContent = `Pages (${items.length})`;
   const SYM = { add: "+", del: "−", both: "±" };
   let html = `<h3>Changed pages (${items.length})</h3>`;
-  for (const c of items) {
-    html += `<div class="chg ${esc(c.type)}" data-page="${c.abspage}" title="Jump to page ${esc(String(c.page))}">
-      <span class="sym">${SYM[c.type] || "+"}</span>
-      <span>Page ${esc(String(c.page))}</span></div>`;
-  }
+  for (const c of items) html += `<div class="chg ${esc(c.type)}" data-page="${c.abspage}" title="Jump to page ${esc(String(c.page))}"><span class="sym">${SYM[c.type] || "+"}</span><span>Page ${esc(String(c.page))}</span></div>`;
   panel.innerHTML = html;
-  panel.querySelectorAll(".chg").forEach(el =>
-    el.addEventListener("click", () => jumpTo(el.getAttribute("data-page"))));
+  panel.querySelectorAll(".chg").forEach(el => el.addEventListener("click", () => { jumpToPage(+el.getAttribute("data-page")); if (isMobile()) closeDrawers(); }));
 }
-
-function jumpTo(page) {
-  if (currentPdfBase) $("#pdf").src = currentPdfBase + "#page=" + page;
-}
-
 function renderAll(all) {
   const current = all.find(d => d.current);
   renderCurrent(current);
   renderList(all.filter(d => !d.current));
-  if (activeId) {
-    const cur = all.find(x => x.id === activeId);
-    if (cur) renderChanges(cur);
-  }
-  if (!autoViewed && !activeId && current && current.status === "done") {
-    autoViewed = true;
-    view(current);
-  }
+  if (activeId) { const cur = all.find(x => x.id === activeId); if (cur) renderChanges(cur); }
+  if (!autoViewed && !activeId && current && current.status === "done") { autoViewed = true; view(current); }
+}
+function view(d) {
+  activeId = d.id;
+  renderChanges(d);
+  loadPdf(pdfUrl(d));
+  if (isMobile()) closeDrawers();
+  if (STATIC) {
+    const q = (d.kind !== "full" && (d.id || "").includes("..")) ? "?diff=" + encodeURIComponent(d.id) : location.pathname;
+    history.replaceState(null, "", q);
+    renderAll(MANIFEST.diffs);
+  } else { refresh(); }
 }
 
-// ---- live-mode actions ----------------------------------------------------
+// ---- live-mode actions ---------------------------------------------------
 
 async function refresh() {
   const all = await fetchDiffs();
   renderAll(all);
   const anyBuilding = all.some(d => d.status === "building" || d.status === "queued");
-  if (anyBuilding && !pollTimer) {
-    pollTimer = setInterval(refresh, 1500);
-  } else if (!anyBuilding && pollTimer) {
-    clearInterval(pollTimer); pollTimer = null;
-  }
+  if (anyBuilding && !pollTimer) pollTimer = setInterval(refresh, 1500);
+  else if (!anyBuilding && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
 }
-
 async function generate(old, neu) {
-  const base = old || $("#base").value;
-  const compare = neu || $("#compare").value;
+  const base = old || $("#base").value, compare = neu || $("#compare").value;
   if (base === compare) { toast("Pick two different commits"); return; }
   $("#gen").disabled = true;
   try {
-    const r = await fetch("/api/diff", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ old: base, new: compare }),
-    });
+    const r = await fetch("/api/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ old: base, new: compare }) });
     const data = await r.json();
     if (data.error) { toast(data.error); return; }
-    toast("Build queued — compiling…");
-    await refresh();
-  } finally {
-    $("#gen").disabled = false;
-  }
+    toast("Build queued — compiling…"); await refresh();
+  } finally { $("#gen").disabled = false; }
 }
-
 async function generateFull(commit) {
   const c = commit || $("#compare").value;
   $("#full").disabled = true;
   try {
-    const r = await fetch("/api/full", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ commit: c }),
-    });
+    const r = await fetch("/api/full", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ commit: c }) });
     const data = await r.json();
     if (data.error) { toast(data.error); return; }
-    toast("Full PDF queued — compiling…");
-    await refresh();
-  } finally {
-    $("#full").disabled = false;
-  }
+    toast("Full PDF queued — compiling…"); await refresh();
+  } finally { $("#full").disabled = false; }
 }
-
 async function del(id) {
   await fetch("/api/diff/" + encodeURIComponent(id), { method: "DELETE" });
-  if (id === activeId) {
-    activeId = null; currentPdfBase = null;
-    $("#pdf").style.display = "none";
-    $("#viewer-empty").style.display = "flex";
-    $("#changes").hidden = true;
-  }
+  if (id === activeId) { activeId = null; $("#pdfview").style.display = "none"; $("#viewer-empty").style.display = "flex"; renderChanges(null); }
   refresh();
 }
 
-// ---- startup: detect live vs static ---------------------------------------
+// ---- startup -------------------------------------------------------------
 
 async function detectMode() {
   try {
     const r = await fetch("/api/meta", { cache: "no-store" });
-    if (r.ok) {
-      const m = await r.json();
-      if (m && m.static !== true) {
-        $("#project").textContent = `${m.repo} · ${m.main}`;
-        REPO_FULL = m.github || null;
-        return false;   // live
-      }
-    }
-  } catch (e) { /* no server -> static */ }
-  return true;          // static
+    if (r.ok) { const m = await r.json(); if (m && m.static !== true) { $("#project").textContent = `${m.repo} · ${m.main}`; REPO_FULL = m.github || null; return false; } }
+  } catch (e) {}
+  return true;
 }
-
 async function loadManifest() {
-  const r = await fetch("manifest.json", { cache: "no-store" });
-  MANIFEST = await r.json();
+  MANIFEST = await (await fetch("manifest.json", { cache: "no-store" })).json();
   REPO_FULL = MANIFEST.repo_full || null;
   const label = [MANIFEST.repo, MANIFEST.main].filter(Boolean).join(" · ");
   if (label) $("#project").textContent = label;
 }
-
 function handleDiffParam() {
   const want = new URLSearchParams(location.search).get("diff");
   if (!want || !want.includes("..")) return;
@@ -615,29 +544,30 @@ function handleDiffParam() {
   const [b, h] = want.split("..");
   showRequestPrompt(b, h);
 }
-
+function wireCommon() {
+  $("#tg-diffs").addEventListener("click", () => openDrawer("diffs"));
+  $("#tg-pages").addEventListener("click", () => openDrawer("pages"));
+  $("#backdrop").addEventListener("click", closeDrawers);
+  $("#zoom-in").addEventListener("click", () => setZoom(zoom * 1.25));
+  $("#zoom-out").addEventListener("click", () => setZoom(zoom / 1.25));
+  $("#zoom-fit").addEventListener("click", () => setZoom(1));
+  let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(relayout, 200); });
+}
 async function init() {
+  wireCommon();
   STATIC = await detectMode();
   if (STATIC) {
     await loadManifest();
     renderAll(MANIFEST.diffs || []);
-    // Prefer a real base/compare picker (commits from the GitHub API); fall back
-    // to a plain "base..compare" text box if that's unavailable (e.g. private repo
-    // or rate-limited).
     const picker = REPO_FULL ? await loadRefsFromGitHub(REPO_FULL) : false;
     if (REPO_FULL) await loadOpenIssues(REPO_FULL);
     if (picker) {
       $("#controls").hidden = false;
-      $("#gen").hidden = true; $("#full").hidden = true;
-      $("#reqissue").hidden = false;
+      $("#gen").hidden = true; $("#full").hidden = true; $("#reqissue").hidden = false;
       $("#base").addEventListener("change", updateDiffButton);
       $("#compare").addEventListener("change", updateDiffButton);
-      $("#swap").addEventListener("click", () => {
-        const b = $("#base").value, c = $("#compare").value;
-        $("#base").value = c; $("#compare").value = b; updateDiffButton();
-      });
-      $("#reqissue").addEventListener("click",
-        () => requestOrView($("#base").value, $("#compare").value));
+      $("#swap").addEventListener("click", () => { const b = $("#base").value, c = $("#compare").value; $("#base").value = c; $("#compare").value = b; updateDiffButton(); });
+      $("#reqissue").addEventListener("click", () => requestOrView($("#base").value, $("#compare").value));
       updateDiffButton();
     }
     handleDiffParam();
@@ -645,20 +575,12 @@ async function init() {
     $("#controls").hidden = false;
     $("#gen").addEventListener("click", () => generate());
     $("#full").addEventListener("click", () => generateFull());
-    $("#swap").addEventListener("click", () => {
-      const b = $("#base").value, c = $("#compare").value;
-      $("#base").value = c; $("#compare").value = b;
-    });
-    if (REPO_FULL) {
-      const rq = $("#reqissue");
-      rq.hidden = false;
-      rq.addEventListener("click", () => requestDiff($("#base").value, $("#compare").value));
-    }
+    $("#swap").addEventListener("click", () => { const b = $("#base").value, c = $("#compare").value; $("#base").value = c; $("#compare").value = b; });
+    if (REPO_FULL) { const rq = $("#reqissue"); rq.hidden = false; rq.addEventListener("click", () => requestDiff($("#base").value, $("#compare").value)); }
     await loadCommits();
     refresh();
   }
 }
-
 init();
 </script>
 </body>
