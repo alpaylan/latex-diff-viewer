@@ -228,6 +228,18 @@ function requestOrView(base, head) {
   if (m) view(m); else requestDiff(base, head);
 }
 
+// One button that reflects state: "Show diff" when the selected pair is built,
+// "Request diff ↗" when it isn't.
+function updateDiffButton() {
+  const rq = $("#reqissue");
+  if (!rq) return;
+  const built = !!findDiff(`${$("#base").value}..${$("#compare").value}`);
+  rq.textContent = built ? "Show diff" : "Request diff ↗";
+  rq.classList.toggle("primary", built);
+  rq.title = built ? "View this diff (already built)"
+                   : "Open a GitHub issue that builds this diff in CI";
+}
+
 // Lenient match of a "a..b" spec against manifest entries (accept sha prefixes).
 function findDiff(spec) {
   if (!spec || !spec.includes("..") || !MANIFEST) return null;
@@ -533,14 +545,16 @@ async function init() {
     if (picker) {
       $("#controls").hidden = false;
       $("#gen").hidden = true; $("#full").hidden = true;
+      $("#reqissue").hidden = false;
+      $("#base").addEventListener("change", updateDiffButton);
+      $("#compare").addEventListener("change", updateDiffButton);
       $("#swap").addEventListener("click", () => {
         const b = $("#base").value, c = $("#compare").value;
-        $("#base").value = c; $("#compare").value = b;
+        $("#base").value = c; $("#compare").value = b; updateDiffButton();
       });
-      const rq = $("#reqissue");
-      rq.hidden = false; rq.textContent = "Show diff ↗";
-      rq.title = "View the diff if it's built, otherwise open an issue to build it";
-      rq.addEventListener("click", () => requestOrView($("#base").value, $("#compare").value));
+      $("#reqissue").addEventListener("click",
+        () => requestOrView($("#base").value, $("#compare").value));
+      updateDiffButton();
     } else if (REPO_FULL) {
       $("#reqbar").hidden = false;
       $("#reqbtn").addEventListener("click", reqFromInput);
