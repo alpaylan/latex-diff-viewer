@@ -19,6 +19,12 @@ from . import core
 from .pages import INDEX_HTML, _now_iso, _safe
 
 
+# Bump when the change-capture mechanism changes, so older cached entries are
+# rebuilt on next request rather than kept by the idempotency check. v2 = the
+# --no-cleanup harvest that records changed pages without a build_dir.
+INDEX_VERSION = 2
+
+
 def manifest_path(store_dir: str) -> str:
     return os.path.join(store_dir, "manifest.json")
 
@@ -56,7 +62,8 @@ def add_diff(cfg: _config.Config, store_dir: str, base_ref: str, head_ref: str,
     if skip_existing:
         for d in load_manifest(store_dir).get("diffs", []):
             if d.get("id") == diff_id and d.get("pdf") \
-                    and os.path.exists(os.path.join(store_dir, d["pdf"])):
+                    and os.path.exists(os.path.join(store_dir, d["pdf"])) \
+                    and d.get("index_version", 1) >= INDEX_VERSION:
                 if on_line:
                     on_line(f"[store] {diff_id} already built — skipping rebuild")
                 return {"ok": True, "id": diff_id, "pdf": d["pdf"], "existing": True,
@@ -75,6 +82,7 @@ def add_diff(cfg: _config.Config, store_dir: str, base_ref: str, head_ref: str,
         "old_subject": o["subject"], "new_subject": n["subject"],
         "old_date": o["date"], "new_date": n["date"],
         "elapsed": res.elapsed, "changes": res.changes, "added": _now_iso(),
+        "index_version": INDEX_VERSION,
     }
 
     manifest = load_manifest(store_dir)
