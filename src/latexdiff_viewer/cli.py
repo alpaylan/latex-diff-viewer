@@ -195,8 +195,11 @@ def cmd_store_seed(args) -> int:
             existing += 1
         else:
             built += 1
-    print(json.dumps({"ok": True, "pairs": len(pairs),
-                      "built": built, "existing": existing, "failed": failed}))
+    # Also render the current commit in full (no diff) as the "current draft".
+    head = default_head() or "HEAD"
+    full = store.add_full(cfg, args.store, head, retain=args.retain, on_line=stderr_sink)
+    print(json.dumps({"ok": True, "pairs": len(pairs), "built": built,
+                      "existing": existing, "failed": failed, "full": full.get("ok", False)}))
     return 0
 
 

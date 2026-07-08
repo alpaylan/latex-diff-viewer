@@ -85,7 +85,6 @@
   .card:hover { border-color: #c5cbd3; }
   .card.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(37,99,235,.15); }
   .card.current { background: linear-gradient(180deg,#f5f8ff,#fff); border-color: #c7d6f7; }
-  #current h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 4px 4px 10px; }
   .card .row1 { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
   .badge { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 20px; text-transform: uppercase; letter-spacing: .3px; }
   .badge.done { background: #e7f5ec; color: var(--add); }
@@ -150,9 +149,10 @@
       <button id="full" title="Render the Compare commit as a plain PDF, no diff markup">Full PDF</button>
       <button id="reqissue" hidden title="Open a GitHub issue that builds this diff in CI">Request diff ↗</button>
     </div>
-    <div id="current"></div>
     <h2>Diffs</h2>
     <div id="list"></div>
+    <h2 id="renders-h" hidden>Renders</h2>
+    <div id="renders"></div>
   </aside>
   <section class="viewer">
     <div id="pdfview"></div>
@@ -404,20 +404,22 @@ async function loadOpenIssues(repoFull) {
 
 // ---- rendering -----------------------------------------------------------
 
-function renderList(diffs) {
-  const list = $("#list");
-  if (!diffs.length) { list.innerHTML = `<div class="empty-list">No diffs yet.${STATIC ? "" : " Generate one above."}</div>`; return; }
+function renderCards(items, sel, emptyMsg) {
+  const list = $(sel);
+  if (!items.length) { list.innerHTML = `<div class="empty-list">${emptyMsg}</div>`; return; }
   list.innerHTML = "";
-  for (const d of diffs) {
+  for (const d of items) {
     const card = document.createElement("div");
-    card.className = "card" + (d.id === activeId ? " active" : "");
+    card.className = "card" + (d.id === activeId ? " active" : "") + (d.current ? " current" : "");
     const building = d.status === "building" || d.status === "queued";
     const spin = building ? '<span class="spinner"></span> ' : "";
     const full = d.kind === "full";
-    const title = full ? (d.subject || "Full PDF") : (d.new_subject || "Compare");
-    const line2 = full ? `📅 ${esc(d.date || "")}` : `↤ vs ${esc(d.old_subject || "")}${d.old_date ? " · " + esc(d.old_date) : ""}`;
+    const title = full ? (d.current ? "📄 Current draft" : (d.subject || "Full render")) : (d.new_subject || "Compare");
+    const line2 = full ? `${esc(d.subject || "")}${d.date ? " · " + esc(d.date) : ""}`
+                       : `↤ vs ${esc(d.old_subject || "")}${d.old_date ? " · " + esc(d.old_date) : ""}`;
+    const kindLabel = full ? (d.current ? "current" : "full pdf") : "diff";
     let inner = `<div class="row1"><span class="badge ${d.status}">${spin}${d.status}</span>
-        <span class="kind ${full ? "full" : "diff"}">${full ? "full pdf" : "diff"}</span></div>
+        <span class="kind ${full ? "full" : "diff"}">${kindLabel}</span></div>
       <div class="subj big" title="${esc(title)}">${esc(title)}</div>
       <div class="subj sub">${line2}</div>
       <div class="meta">${d.elapsed ? `<span>⏱ ${d.elapsed}s</span>` : ""}${d.changes && d.changes.length ? `<span>${d.changes.length} changed pp.</span>` : ""}</div>`;
@@ -439,21 +441,6 @@ function renderList(diffs) {
     list.appendChild(card);
   }
 }
-function renderCurrent(d) {
-  const el = $("#current");
-  if (!d) { el.innerHTML = ""; return; }
-  const building = d.status === "building" || d.status === "queued";
-  const spin = building ? '<span class="spinner"></span> ' : "";
-  let inner = `<h2>Current draft</h2>
-    <div class="card current ${d.id === activeId ? "active" : ""}" id="current-card">
-      <div class="row1"><span class="badge ${d.status}">${spin}${d.status}</span><span class="kind full">full pdf</span></div>
-      <div class="subj big">📄 Latest draft</div>
-      <div class="subj sub">${esc(d.subject || "latest commit")}${d.date ? " · " + esc(d.date) : ""}</div>`;
-  if (d.status === "error" && d.error) inner += `<div class="err">${esc(d.error)}</div>`;
-  inner += `</div>`;
-  el.innerHTML = inner;
-  $("#current-card").addEventListener("click", () => { if (d.status === "done") view(d); });
-}
 function renderChanges(d) {
   const panel = $("#changes"), tg = $("#tg-pages");
   const items = (d && d.kind !== "full" && d.changes) ? d.changes : [];
@@ -468,10 +455,16 @@ function renderChanges(d) {
   panel.querySelectorAll(".chg").forEach(el => el.addEventListener("click", () => { jumpToPage(+el.getAttribute("data-page")); if (isMobile()) closeDrawers(); }));
 }
 function renderAll(all) {
-  const current = all.find(d => d.current);
-  renderCurrent(current);
-  renderList(all.filter(d => !d.current));
+  const fulls = all.filter(d => d.kind === "full");
+  // Hide diffs that finished with no changed pages — they render nothing
+  // substantial. (Kept in the store + reachable via ?diff=, just not listed.)
+  const diffs = all.filter(d => d.kind !== "full"
+    && !(d.status === "done" && (!d.changes || d.changes.length === 0)));
+  renderCards(diffs, "#list", `No diffs with changes yet.${STATIC ? "" : " Generate one above."}`);
+  renderCards(fulls, "#renders", "No full renders yet.");
+  $("#renders-h").hidden = fulls.length === 0;
   if (activeId) { const cur = all.find(x => x.id === activeId); if (cur) renderChanges(cur); }
+  const current = all.find(d => d.current) || fulls[0];
   if (!autoViewed && !activeId && current && current.status === "done") { autoViewed = true; view(current); }
 }
 function view(d) {
