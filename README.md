@@ -1,204 +1,202 @@
 # latex-diff-viewer
 
 Render [`git-latexdiff`](https://gitlab.com/git-latexdiff/git-latexdiff) between
-two commits for **any** LaTeX project — as a GitHub Action that comments on your
-PRs, a browsable GitHub Pages site, or a local interactive web app. All the TeX
-tooling is baked into a prebuilt Docker image, so you only provide your build
-instructions.
+any two commits of **any** LaTeX project, and browse the result — on pull requests,
+via on-demand requests, and as a published, browsable web viewer. All the TeX
+tooling ships in a prebuilt Docker image; you provide only your build instructions
+(often none — it auto-detects).
 
-Added text is blue + underlined, removed text is red + struck through. The viewer
-also shows a **changed-pages index** you can click to jump straight to each
-change — automatically, for any project (no configuration required).
+**Live demo:** <https://alpaylan.github.io/arxiv-style/> — pick two commits, view the
+rendered diff (added text blue + underlined, removed red + struck through), and
+click a changed page to jump straight to it.
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│  LaTeX diff viewer · arxiv-style · template.tex          added  removed  │
+├────────────────┬──────────────────────────────────────┬─────────────────┤
+│ Base   [v1  ▾] │                                        │ Changed pages   │
+│ Compare[HEAD▾] │            diff PDF (rendered)         │   +  Page 1     │
+│ [ Show diff ]  │      added text · ~~removed text~~     │   ±  Page 7     │
+│                │                                        │   (click → jump)│
+│ Diffs          │                                        │                 │
+│  • v2   7 pp   │                                        │                 │
+│  • v1.1 3 pp   │                                        │                 │
+│ Renders        │                                        │                 │
+│  • Current ★   │                                        │                 │
+└────────────────┴──────────────────────────────────────┴─────────────────┘
+```
 
 ---
 
-## 1. GitHub Action — PR comments + artifacts
+## Quick start (recommended)
 
-**No config needed for the common case.** If your project has a single LaTeX
-document and builds with `latexmk`, just add the workflow below — the tool
-**auto-detects the main `.tex`** (the file with `\documentclass` +
-`\begin{document}`) and uses `latexmk -pdf`.
+Get PR diffs, on-demand diffs, and a browsable viewer — all in one file.
 
-Add a `difftool.toml` (see [`difftool.example.toml`](difftool.example.toml)) *only
-to override something* — e.g. a non-`latexmk` build, or when several documents make
-the main file ambiguous. Anything in it can equally be passed as workflow `with:`
-inputs, so the file is never mandatory:
+1. **Add the workflow.** Copy [`examples/consumer.yml`](examples/consumer.yml) to
+   `.github/workflows/latex-diff.yml`.
+2. **(Optional) add `difftool.toml`.** Skip it if your project is a single document
+   built with `latexmk` — the tool auto-detects the main `.tex` (the file with
+   `\documentclass` + `\begin{document}`). Otherwise:
+   ```toml
+   main = "paper.tex"
+   build_command = "make"      # only if you don't use latexmk
+   ```
+3. **Turn on Pages.** After the first run creates the `latexdiff-store` branch, set
+   **Settings → Pages → Deploy from a branch → `latexdiff-store` / (root)**.
 
-```toml
-# every key optional
-build_command = "make"        # e.g. if you don't use latexmk
-```
+That's it. Now:
 
-Then `.github/workflows/latex-diff.yml`:
+| You do… | You get… |
+|---|---|
+| Open a **PR** | the base→head diff **rendered in the viewer**, linked from a PR comment |
+| **Push** to `main` | recent commits' diffs + a **current-draft** full render, seeded into the viewer |
+| Open an **issue** `latexdiff <base>..<head>` | that diff built **on demand**, with a viewer link |
 
-```yaml
-name: LaTeX diff
-on:
-  pull_request:
-  push:
-    branches: [main]
-
-jobs:
-  diff:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write      # to post the comment
-    steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }   # git-latexdiff needs both commits
-      - uses: alpaylan/latex-diff-viewer@v1
-        with:
-          config: difftool.toml
-
-  pages:
-    if: github.event_name == 'push'
-    uses: alpaylan/latex-diff-viewer/.github/workflows/pages.yml@v1
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-```
-
-On every PR you get a comment with the changed-page count plus a **downloadable
-artifact** containing the diff PDF and a full PDF of the head commit. On every
-push to `main` the browsable viewer is published to GitHub Pages (enable
-**Settings → Pages → Source: GitHub Actions** once).
-
-You can also **run it by hand**: Actions → *LaTeX diff* → *Run workflow*, and
-optionally type the two commits to compare (blank compares the latest commit
-against its parent). Manual and push runs have no PR to comment on, so they
-report the result on the run's **Summary** page and via the uploaded artifact.
-
-A ready-to-copy version lives in [`examples/consumer.yml`](examples/consumer.yml).
-
-### Action inputs
-
-| input | default | meaning |
-|-------|---------|---------|
-| `config` | `difftool.toml` | Path to the config file. |
-| `main` / `build_command` / `build_dir` / `latexdiff_options` / `assets` | — | Override the corresponding config key. |
-| `base` / `head` | PR base / head | Commits to diff. |
-| `full` | `true` | Also build a full (no-diff) PDF of `head`. |
-| `comment` | `true` | Post/update the PR comment. |
-| `artifact_name` | `latex-diff` | Uploaded artifact name. |
-| `image` | `ghcr.io/alpaylan/latex-diff-viewer:v1` | Prebuilt tool image. |
-
-Outputs: `diff_pdf`, `full_pdf`, `changed_pages`.
-
-### The Pages viewer — two architectures
-
-A repo can have **one** Pages source, so pick one:
-
-- **Store viewer (recommended, unified).** A `latexdiff-store` branch holds the
-  diffs + manifest + viewer; **push-seeded recent history and on-demand requests
-  both append to it**, so they show in one viewer. Set Settings → Pages → *Deploy
-  from a branch* → `latexdiff-store`. Wire it with one file —
-  [`examples/consumer.yml`](examples/consumer.yml) — combining:
-  - `pr-diff.yml` on **pull_request**: builds base→head, publishes it to the store,
-    and comments a **"View the diff ↗"** link (with an artifact fallback for fork
-    PRs, which can't push to the store) — so PR diffs render in the viewer, no
-    artifact download needed.
-  - `store-seed.yml` on **push**: pre-builds the last `pages_recent` commits' diffs.
-  - `issue-diff.yml` on **issues**: an issue titled `latexdiff <base>..<head>` builds
-    that diff on demand, comments a viewer link, and closes the issue. The viewer's
-    **"Request diff"** button opens exactly such an issue (a self-filling cache);
-    it shows **"Building…"** if one's already in progress.
-
-  Both use the same `concurrency` group so they never race; the store keeps the
-  most recent `retain` (default 50) diffs. (Actions *artifacts* can't power a static
-  viewer — they need auth and expire; the branch is what makes diffs publicly
-  reachable.)
-
-- **Pre-generated only.** [`pages.yml`](.github/workflows/pages.yml) deploys a fresh
-  site via `actions/deploy-pages` (Settings → Pages → *GitHub Actions*). Simpler,
-  but no on-demand requests, and it can't coexist with the store viewer.
-
-The **PR action is independent of both** — it only comments + uploads an artifact,
-so it works alongside either (or neither).
+The viewer (the `latexdiff-store` branch, served by Pages) shows all of them in one
+place, with a clickable **changed-pages index** — automatically, no config.
 
 ---
 
-## 2. Local interactive viewer
+## What it looks like
 
-Point the tool at any LaTeX repo — no need to copy anything into it:
+**PR comment** (the diff renders in the viewer; the artifact is just a fork-PR fallback):
+
+> ### 📄 LaTeX diff
+> ✅ Built `a1b2c3d..e4f5a6b` — **2 changed page(s)**.
+>
+> **[View the diff ↗](https://you.github.io/repo/?diff=a1b2c3d..e4f5a6b)**  ·  or download the **latex-diff** artifact from the run.
+
+**Issue request** — a single comment that transitions in place:
+
+> 🔧 Building diff `v1..HEAD`… Follow along in the [workflow run ▸](#).
+
+…then, when it's done (and the issue auto-closes):
+
+> 📄 Built `v1..HEAD` — **2 changed page(s)**. View it here: `https://you.github.io/repo/?diff=v1..HEAD`
+
+**Viewer on mobile** — full-screen PDF (rendered with PDF.js so it works on iOS),
+with slide-in drawers:
+
+```
+┌──────────────────────────┐
+│ ☰ Diffs        Changes(2) │
+├──────────────────────────┤
+│                          │
+│     diff PDF (canvas)    │
+│     pinch · scroll       │
+│                          │
+│                [−][⤢][+] │
+└──────────────────────────┘
+  ☰ Diffs   → picker + diffs/renders drawer
+  Changes(2) → drawer; tap a page to jump
+```
+
+---
+
+## How it works
+
+```
+   PR ──────────┐   push ─────────┐   issue "latexdiff a..b" ──┐
+                ▼                  ▼                            ▼
+          pr-diff.yml        store-seed.yml               issue-diff.yml
+                └──────── store-add / store-seed ──────────────┘
+                                  │  (append, idempotent, one concurrency group)
+                                  ▼
+                 latexdiff-store branch  =  manifest.json + PDFs + viewer
+                                  │  (served by GitHub Pages, branch source)
+                                  ▼
+                  browsable viewer  ·  ?diff=a..b deep links
+```
+
+Everything appends to one store branch via the same idempotent `store-add`, so PR,
+push, and on-demand diffs coexist in a single viewer. The changed-pages index is
+**float-aware**: each change's page is recorded at *shipout* (via `zref-abspage`),
+so a changed table or figure points to the page it actually lands on — not the
+source line. (GitHub *artifacts* can't power a static viewer — they need auth and
+expire — which is why the store lives in a branch.)
+
+---
+
+## Configuration (`difftool.toml`)
+
+All keys optional; a JSON `difftool.json` with the same keys also works.
+
+| key | default | meaning |
+|---|---|---|
+| `main` | auto-detected, else `main.tex` | Main LaTeX file. |
+| `build_command` | `latexmk -pdf -f -interaction=nonstopmode {main}` | Your full build. `{main}`/`{build_dir}`/`{jobname}` are substituted. |
+| `build_dir` | *(unset)* | latexmk out_dir — set only if your `latexmkrc` writes the PDF into a subdir. |
+| `output_pdf` | `{build_dir}/{jobname}.pdf` | Where `build_command` leaves the PDF (auto-discovered if it differs). |
+| `latexdiff_options` | `[]` | Extra flags for `git latexdiff` (e.g. `--add-to-config=VERBATIMLINEENV=code`). |
+| `untracked_assets` | `[]` | Globs of gitignored files to mirror into checkouts (e.g. generated figures). |
+| `pages_recent` | `10` | How many recent commits `store-seed` pre-builds on push. |
+| `pages_pairs` | `[]` | Pin specific `base..compare` diffs (overrides `pages_recent`). |
+
+---
+
+## Local interactive viewer (no CI)
+
+Point it at any repo — nothing to copy in:
 
 ```bash
-git clone https://github.com/alpaylan/latex-diff-viewer
-cd latex-diff-viewer
+git clone https://github.com/alpaylan/latex-diff-viewer && cd latex-diff-viewer
 PYTHONPATH=src python3 -m latexdiff_viewer.server --repo /path/to/your/paper
-# -> http://127.0.0.1:8765
+# -> http://127.0.0.1:8765   (pick Base/Compare, Generate diff)
 ```
 
-Pick a **Base** and **Compare** commit and hit **Generate diff**; a **Current
-draft** (full PDF of `HEAD`) is auto-built and pinned. Needs `python3`,
-`git-latexdiff`, `latexmk` and a LaTeX engine on `PATH` (or just use the Docker
-image below).
-
-Or run it from the Docker image against the current directory:
+Or from the Docker image, against the current directory:
 
 ```bash
 docker run --rm -it -p 8765:8765 -v "$PWD:/repo" -w /repo \
   ghcr.io/alpaylan/latex-diff-viewer:v1 serve --host 0.0.0.0
 ```
 
----
-
-## 3. Configuration (`difftool.toml`)
-
-| key | default | meaning |
-|-----|---------|---------|
-| `main` | `main.tex` | Main LaTeX file. |
-| `build_command` | `latexmk -pdf -f -interaction=nonstopmode {main}` | Your project's own full build. `{main}`, `{build_dir}`, `{jobname}` are substituted. |
-| `build_dir` | *(unset)* | latexmk out_dir — set it only if your project's `latexmkrc` writes the PDF into a subdir, so the diff build can find it. Not needed for the changed-pages index. |
-| `output_pdf` | `{build_dir}/{jobname}.pdf` | Where `build_command` leaves the PDF (auto-discovered if it differs). |
-| `latexdiff_options` | `[]` | Extra flags for `git latexdiff`. |
-| `untracked_assets` | `[]` | Globs of gitignored files to mirror into checkouts (local only). |
-| `pages_recent` | `10` | Pages viewer pre-builds a diff for each of the last N commits (vs parent). |
-| `pages_pairs` | `[]` | Pin specific `base..compare` diffs for Pages (overrides `pages_recent`). |
-
-A JSON `difftool.json` with the same keys works too (for Python < 3.11 without
-`tomllib`).
-
-### The changed-pages index
-
-Works automatically, no config. The diff `--filter` records each change into the
-`.aux`; the tool preserves `git-latexdiff`'s work tree (`--no-cleanup` +
-`--tmpdirprefix`) and reads those records straight from it, so the clickable
-page list is produced for any project.
+Needs `python3`, `git-latexdiff`, `latexmk`, and a LaTeX engine on `PATH` — or just
+use the Docker image, which has them.
 
 ---
 
-## 4. CLI
+## Alternatives
 
-The Docker image's entrypoint (also runnable via `python3 -m latexdiff_viewer.cli`):
+- **Artifact only (no Pages).** Use the composite action directly for a PR comment +
+  a downloadable PDF, without the store viewer:
+  ```yaml
+  - uses: alpaylan/latex-diff-viewer@v1
+    with: { config: difftool.toml }
+  ```
+  Inputs: `config`, `main`/`build_command`/`build_dir`/`latexdiff_options`/`assets`
+  (overrides), `base`/`head`, `full`, `comment`, `artifact_name`, `image`.
+  Outputs: `diff_pdf`, `full_pdf`, `changed_pages`.
+- **Pre-generated Pages.** [`pages.yml`](.github/workflows/pages.yml) deploys a fresh
+  site via `actions/deploy-pages` (Pages source: *GitHub Actions*). Simpler, but no
+  on-demand requests, and it can't coexist with the store viewer (one Pages source
+  per repo).
+
+---
+
+## CLI
+
+The Docker image's entrypoint (also `python3 -m latexdiff_viewer.cli`):
 
 ```bash
-latex-diff-viewer build-diff --old A --new B -o out/diff.pdf   # prints JSON + changes
-latex-diff-viewer build-full --commit HEAD  -o out/full.pdf
-latex-diff-viewer pages      -o site                            # static viewer
-latex-diff-viewer serve      --port 8765                        # interactive UI
+latex-diff-viewer build-diff  --old A --new B -o out/diff.pdf   # JSON + changed pages
+latex-diff-viewer build-full  --commit HEAD   -o out/full.pdf
+latex-diff-viewer store-add   --old A --new B --store site      # append a diff to a store
+latex-diff-viewer store-seed  --store site                      # append recent diffs + a full render
+latex-diff-viewer serve       --port 8765                       # local interactive UI
 ```
-
----
 
 ## Development
 
 ```bash
-docker build -t ldv:test .          # build the image
+docker build -t ldv:test .
 ```
 
-CI (`.github/workflows/selftest.yml`) builds the image and exercises
-`build-diff` / `build-full` / `pages` against a tiny two-commit sample project in
-`tests/sample-project/`. `docker-publish.yml` pushes the image to GHCR on a `v*`
-tag.
+`selftest.yml` builds the image and exercises the CLI against a two-commit sample in
+`tests/sample-project/`; `docker-publish.yml` pushes the image to GHCR on a `v*` tag.
 
 ## License
 
-latex-diff-viewer's own code is licensed under the [MIT License](LICENSE).
-
-It orchestrates existing tools without including their code. The published
-Docker image additionally **bundles** `git-latexdiff` (permissive/BSD),
-`latexdiff` and `latexmk` (GPL), and TeX Live (mixed) — each under its own
-license, unmodified. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+This project's own code is [MIT](LICENSE). The Docker image bundles `git-latexdiff`
+(permissive/BSD), `latexdiff` and `latexmk` (GPL), and TeX Live (mixed), each under
+its own license, unmodified — see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
