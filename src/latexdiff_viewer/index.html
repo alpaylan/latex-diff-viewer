@@ -220,6 +220,14 @@ function reqFromInput() {
   requestDiff(b, h);
 }
 
+// Static picker action: view the pair if it's already built, else open an issue.
+function requestOrView(base, head) {
+  base = (base || "").trim(); head = (head || "").trim();
+  if (!base || !head || base === head) { toast("Pick two different commits"); return; }
+  const m = findDiff(`${base}..${head}`);
+  if (m) view(m); else requestDiff(base, head);
+}
+
 // Lenient match of a "a..b" spec against manifest entries (accept sha prefixes).
 function findDiff(spec) {
   if (!spec || !spec.includes("..") || !MANIFEST) return null;
@@ -249,22 +257,46 @@ async function fetchDiffs() {
   return data.diffs || [];
 }
 
-async function loadCommits() {
-  const r = await fetch("/api/commits");
-  const data = await r.json();
-  if (data.error) { toast("git log failed"); return; }
-  commits = data.commits;
+function fillCommitSelects() {
   const base = $("#base"), compare = $("#compare");
   base.innerHTML = ""; compare.innerHTML = "";
   for (const c of commits) {
     const o1 = document.createElement("option");
     o1.value = c.short; o1.textContent = optionLabel(c); base.appendChild(o1);
-    const o2 = o1.cloneNode(true); compare.appendChild(o2);
+    compare.appendChild(o1.cloneNode(true));
   }
   if (commits.length >= 2) {
     compare.value = commits[0].short;
     base.value = commits[1].short;
   }
+}
+
+async function loadCommits() {
+  const r = await fetch("/api/commits");
+  const data = await r.json();
+  if (data.error) { toast("git log failed"); return; }
+  commits = data.commits;
+  fillCommitSelects();
+}
+
+// Static (Pages) mode has no backend, but a public repo's commits are available
+// from the GitHub REST API (CORS-enabled, no auth) — so the picker still works.
+async function loadCommitsFromGitHub(repoFull) {
+  try {
+    const r = await fetch(`https://api.github.com/repos/${repoFull}/commits?per_page=100`,
+      { headers: { "Accept": "application/vnd.github+json" } });
+    if (!r.ok) return false;
+    const data = await r.json();
+    if (!Array.isArray(data) || !data.length) return false;
+    commits = data.map(c => ({
+      hash: c.sha, short: c.sha.slice(0, 7),
+      subject: ((c.commit && c.commit.message) || "").split("\n")[0],
+      date: (((c.commit && c.commit.author && c.commit.author.date)) || "")
+              .slice(0, 16).replace("T", " "),
+    }));
+    fillCommitSelects();
+    return true;
+  } catch (e) { return false; }
 }
 
 // ---- rendering (shared by both modes) -------------------------------------
@@ -477,11 +509,6 @@ async function loadManifest() {
   REPO_FULL = MANIFEST.repo_full || null;
   const label = [MANIFEST.repo, MANIFEST.main].filter(Boolean).join(" · ");
   if (label) $("#project").textContent = label;
-  if (REPO_FULL) {
-    $("#reqbar").hidden = false;
-    $("#reqbtn").addEventListener("click", reqFromInput);
-    $("#reqpair").addEventListener("keydown", e => { if (e.key === "Enter") reqFromInput(); });
-  }
 }
 
 function handleDiffParam() {
@@ -499,6 +526,26 @@ async function init() {
   if (STATIC) {
     await loadManifest();
     renderAll(MANIFEST.diffs || []);
+    // Prefer a real base/compare picker (commits from the GitHub API); fall back
+    // to a plain "base..compare" text box if that's unavailable (e.g. private repo
+    // or rate-limited).
+    const picker = REPO_FULL ? await loadCommitsFromGitHub(REPO_FULL) : false;
+    if (picker) {
+      $("#controls").hidden = false;
+      $("#gen").hidden = true; $("#full").hidden = true;
+      $("#swap").addEventListener("click", () => {
+        const b = $("#base").value, c = $("#compare").value;
+        $("#base").value = c; $("#compare").value = b;
+      });
+      const rq = $("#reqissue");
+      rq.hidden = false; rq.textContent = "Show diff ↗";
+      rq.title = "View the diff if it's built, otherwise open an issue to build it";
+      rq.addEventListener("click", () => requestOrView($("#base").value, $("#compare").value));
+    } else if (REPO_FULL) {
+      $("#reqbar").hidden = false;
+      $("#reqbtn").addEventListener("click", reqFromInput);
+      $("#reqpair").addEventListener("keydown", e => { if (e.key === "Enter") reqFromInput(); });
+    }
     handleDiffParam();
   } else {
     $("#controls").hidden = false;
