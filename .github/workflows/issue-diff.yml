@@ -70,7 +70,11 @@ jobs:
           if git show-ref --verify --quiet "refs/remotes/origin/$STORE"; then
             git worktree add -B "$STORE" "$RUNNER_TEMP/store" "origin/$STORE"
           else
-            git worktree add --orphan "$STORE" "$RUNNER_TEMP/store"
+            # Portable orphan branch (avoids `worktree add --orphan` arg-parsing
+            # differences across git versions): detach, then start an unborn branch.
+            git worktree add --detach "$RUNNER_TEMP/store" HEAD
+            git -C "$RUNNER_TEMP/store" checkout --orphan "$STORE"
+            git -C "$RUNNER_TEMP/store" rm -rf . >/dev/null 2>&1 || true
           fi
 
       - name: Build diff + append to store
