@@ -20,9 +20,10 @@ from .pages import INDEX_HTML, _now_iso, _safe
 
 
 # Bump when the change-capture mechanism changes, so older cached entries are
-# rebuilt on next request rather than kept by the idempotency check. v2 = the
-# --no-cleanup harvest that records changed pages without a build_dir.
-INDEX_VERSION = 2
+# rebuilt on next request rather than kept by the idempotency check.
+#   v2 = --no-cleanup harvest (changed pages without a build_dir)
+#   v3 = zref shipout pages (floats/figures report the page they land on)
+INDEX_VERSION = 3
 
 
 def manifest_path(store_dir: str) -> str:

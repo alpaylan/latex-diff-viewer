@@ -4,17 +4,18 @@
 git-latexdiff runs this inside the diff checkout with the flattened diff file
 as the only argument; it must rewrite that file in place.
 
-We add a small preamble block (just before \\begin{document}) that hooks
-latexdiff's own \\DIFaddbegin / \\DIFdelbegin markers (defined with
-\\DeclareRobustCommand, so we patch them with etoolbox's \\pretocmd).  At every
-change we:
+We inject a preamble block (just before \\begin{document}) that hooks latexdiff's
+\\DIFadd / \\DIFdel (the commands wrapping the actually-rendered changed text). At
+every change we:
 
-  * write a record to the .aux:  \\difchgmeta{N}{add|del}{abspage}{printedpage}
-    -> the server parses these to build a clickable list of changes.
-  * drop a PDF bookmark too (harmless bonus for viewers that show an outline).
+  * write a type record to the .aux:  \\difchgmeta{N}{add|del}
+  * drop a zref-abspage label:        difchgN  (page + abspage)
+  * drop a PDF bookmark (bonus when hyperref is present).
 
-`abspage` (physical page, via atbegshi) is what the UI uses to jump the embedded
-viewer; `printedpage` (\\thepage) is shown as the human label.
+The page is taken from the zref label, which is resolved at *shipout* — so content
+that floats (tables, figures, landscape/rotated pages) reports the page it actually
+lands on, not the source location where the markup was processed. `parse_changes`
+in core.py reads the type record + the zref page to build the clickable index.
 """
 
 import sys
@@ -23,35 +24,29 @@ INJECT = r"""
 % --- diff-viewer: per-change index data (injected) --------------------------
 \makeatletter
 \usepackage{etoolbox}
-\usepackage{atbegshi}
-\providecommand{\difchgmeta}[4]{}% defined as no-op so reading .aux never errors
+\usepackage[abspage]{zref}
+\providecommand{\difchgmeta}[2]{}% no-op so reading the .aux never errors
 \newcounter{difchg}
-\newcounter{difabspage}
-\AtBeginShipout{\stepcounter{difabspage}}
 \newcommand{\difchgmark}[1]{%
-  % Only act during real typesetting. When a \DIFadd/\DIFdel sits in a moving
-  % argument (a \section title written to the .aux/.toc or a running-head mark)
-  % \protect is not \@typeset@protect, and expanding our \write/\pdfbookmark
-  % there breaks compilation ("Missing \endcsname"). Skipping those contexts also
-  % avoids double-counting a heading change.
+  % Only act during real typesetting. In a moving argument (a \section title
+  % written to the .aux/.toc or a running-head mark) \protect is not
+  % \@typeset@protect, and expanding our \write there breaks compilation; skipping
+  % those contexts also avoids double-counting a heading change.
   \ifx\protect\@typeset@protect
     \ifmmode\else
       \stepcounter{difchg}%
-      % record first, so a stray \pdfbookmark error can never drop a change
-      \immediate\write\@auxout{%
-        \string\difchgmeta{\arabic{difchg}}{#1}%
-        {\the\numexpr\value{difabspage}+1\relax}{\thepage}}%
-      % \pdfbookmark only exists with hyperref; the change index reads the .aux
-      % record above, so the outline entry is a pure bonus when hyperref is there.
+      \immediate\write\@auxout{\string\difchgmeta{\arabic{difchg}}{#1}}%
+      % zref records page + abspage at SHIPOUT, so floated content (tables/figures/
+      % landscape) reports the page it actually lands on, not the source location.
+      \zref@labelbyprops{difchg\arabic{difchg}}{page,abspage}%
       \ifdefined\pdfbookmark
-        \pdfbookmark[0]{Change \thedifchg\space(p.\thepage)}{difchg.\arabic{difchg}}%
+        \pdfbookmark[0]{Change \thedifchg}{difchg.\arabic{difchg}}%
       \fi
     \fi
   \fi}
 % Hook \DIFadd / \DIFdel (which wrap the actual coloured/struck *text*) rather
 % than \DIFaddbegin / \DIFdelbegin: the begin-markers also wrap structural,
-% non-rendering changes (e.g. an edit inside a \chapter title), which would
-% index entries that jump to a page with nothing visibly changed.
+% non-rendering changes (e.g. an edit inside a \chapter title).
 \AtBeginDocument{%
   \ifdef{\DIFadd}{\pretocmd{\DIFadd}{\difchgmark{add}}{}{}}{}%
   \ifdef{\DIFdel}{\pretocmd{\DIFdel}{\difchgmark{del}}{}{}}{}%

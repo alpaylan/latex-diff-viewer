@@ -133,29 +133,49 @@ def ensure_ref(repo_root: str, ref: str) -> None:
 # Change index (parses records the --filter wrote into the .aux)
 # ---------------------------------------------------------------------------
 
-CHGMETA_RE = re.compile(r"\\difchgmeta\{(\d+)\}\{(add|del)\}\{(\d+)\}\{([^}]*)\}")
+CHGMETA_RE = re.compile(r"\\difchgmeta\{(\d+)\}\{(add|del)\}")
+ZREF_RE = re.compile(r"\\zref@newlabel\{difchg(\d+)\}\{")
+ABSPAGE_RE = re.compile(r"\\abspage\{(\d+)\}")
+ZPAGE_RE = re.compile(r"\\page\{([^}]*)\}")
 
 
 def parse_changes(aux_path: str) -> list[dict]:
-    """Collapse the \\difchgmeta records to one entry per changed page.
+    """Collapse the change records to one entry per changed page.
 
-    A change in a heading fires several times (body, TOC, running head), so
-    per-record entries are noisy; we group by physical page. Each entry has the
-    physical page (for jumping), printed page (label) and a type add/del/both."""
+    Each change writes a type record (\\difchgmeta{N}{add|del}) and a zref label
+    (difchgN) whose page/abspage are resolved at *shipout* — so floated content
+    (tables/figures/landscape) reports the page it lands on, not the source
+    location. We join the two by N and group by physical page. A change in a
+    heading fires several times (body/TOC/running head), hence the grouping."""
     try:
         with open(aux_path, encoding="utf-8", errors="replace") as fh:
             text = fh.read()
     except OSError:
         return []
+
+    types = {int(m.group(1)): m.group(2) for m in CHGMETA_RE.finditer(text)}
+    # page/abspage per change id, from its zref label.
+    loc: dict[int, tuple[int, str]] = {}
+    for m in ZREF_RE.finditer(text):
+        n = int(m.group(1))
+        body = text[m.end():m.end() + 240]        # properties follow the label name
+        ap = ABSPAGE_RE.search(body)
+        if not ap:
+            continue
+        pg = ZPAGE_RE.search(body)
+        loc[n] = (int(ap.group(1)), pg.group(1) if pg else str(int(ap.group(1))))
+
     pages: dict[int, dict] = {}
-    for m in CHGMETA_RE.finditer(text):
-        typ, abspage, page = m.group(2), int(m.group(3)), m.group(4)
+    for n, typ in types.items():
+        if n not in loc:
+            continue
+        abspage, page = loc[n]
         e = pages.setdefault(abspage, {"abspage": abspage, "page": page, "types": set()})
         e["types"].add(typ)
     out = []
     for i, e in enumerate(sorted(pages.values(), key=lambda x: x["abspage"]), 1):
-        types = e["types"]
-        typ = "both" if len(types) > 1 else next(iter(types))
+        types_ = e["types"]
+        typ = "both" if len(types_) > 1 else next(iter(types_))
         out.append({"n": i, "type": typ, "abspage": e["abspage"], "page": e["page"]})
     return out
 
