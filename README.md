@@ -6,9 +6,9 @@ PRs, a browsable GitHub Pages site, or a local interactive web app. All the TeX
 tooling is baked into a prebuilt Docker image, so you only provide your build
 instructions.
 
-Added text is blue + underlined, removed text is red + struck through. When your
-project builds into a `build_dir`, the viewer also shows a **changed-pages index**
-you can click to jump straight to each change.
+Added text is blue + underlined, removed text is red + struck through. The viewer
+also shows a **changed-pages index** you can click to jump straight to each
+change — automatically, for any project (no configuration required).
 
 ---
 
@@ -132,7 +132,7 @@ docker run --rm -it -p 8765:8765 -v "$PWD:/repo" -w /repo \
 |-----|---------|---------|
 | `main` | `main.tex` | Main LaTeX file. |
 | `build_command` | `latexmk -pdf -f -interaction=nonstopmode {main}` | Your project's own full build. `{main}`, `{build_dir}`, `{jobname}` are substituted. |
-| `build_dir` | *(unset)* | latexmk out_dir. **Set it (with a matching `latexmkrc $out_dir`) to enable the changed-pages index.** |
+| `build_dir` | *(unset)* | latexmk out_dir — set it only if your project's `latexmkrc` writes the PDF into a subdir, so the diff build can find it. Not needed for the changed-pages index. |
 | `output_pdf` | `{build_dir}/{jobname}.pdf` | Where `build_command` leaves the PDF (auto-discovered if it differs). |
 | `latexdiff_options` | `[]` | Extra flags for `git latexdiff`. |
 | `untracked_assets` | `[]` | Globs of gitignored files to mirror into checkouts (local only). |
@@ -144,11 +144,10 @@ A JSON `difftool.json` with the same keys works too (for Python < 3.11 without
 
 ### The changed-pages index
 
-The index is powered by records the diff `--filter` writes into the `.aux`. That
-file only survives `git-latexdiff`'s cleanup when your project builds into a
-`build_dir` (so the tool can symlink it back). Set `build_dir` + a `latexmkrc`
-with `$out_dir` to get it; otherwise the diff PDF is still produced, just without
-the clickable page list.
+Works automatically, no config. The diff `--filter` records each change into the
+`.aux`; the tool preserves `git-latexdiff`'s work tree (`--no-cleanup` +
+`--tmpdirprefix`) and reads those records straight from it, so the clickable
+page list is produced for any project.
 
 ---
 

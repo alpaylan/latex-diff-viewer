@@ -237,29 +237,72 @@ class BuildResult:
         self.elapsed = elapsed
 
 
+def _harvest_diff(cfg: _config.Config, prefix: str) -> tuple[str | None, str | None]:
+    """Find the diff PDF and the .aux (the one carrying our \\difchgmeta records)
+    in git-latexdiff's preserved work tree under `prefix`.
+
+    A project that builds into an out_dir writes — via the --ln-untracked symlink
+    — to the *real* working-tree build dir (outside `prefix`); check that first.
+    Otherwise the outputs are real files inside `prefix`."""
+    jobname = cfg.jobname
+
+    def has_records(path: str) -> bool:
+        try:
+            with open(path, encoding="utf-8", errors="ignore") as fh:
+                return "\\difchgmeta" in fh.read()
+        except OSError:
+            return False
+
+    # Fast path for build_dir projects: latexmk writes (through --ln-untracked's
+    # symlink) to the *real* working-tree build dir, outside `prefix`.
+    aux: str | None = None
+    pdfs: list[str] = []
+    if cfg.build_dir:
+        if os.path.exists(cfg.aux_path) and has_records(cfg.aux_path):
+            aux = cfg.aux_path
+        bp = os.path.join(cfg.build_path, f"{jobname}.pdf")
+        if os.path.exists(bp):
+            pdfs.append(bp)
+
+    # Walk the preserved checkout. followlinks=True so we descend through the
+    # new/build symlink (-> real build dir) when the fast path didn't catch it.
+    for root, _dirs, files in os.walk(prefix, followlinks=True):
+        for f in files:
+            p = os.path.join(root, f)
+            if f == f"{jobname}.pdf":
+                pdfs.append(p)
+            elif aux is None and f.endswith(".aux") and has_records(p):
+                aux = p
+    if not pdfs:  # any PDF, as a last resort
+        for root, _dirs, files in os.walk(prefix, followlinks=True):
+            pdfs += [os.path.join(root, f) for f in files if f.endswith(".pdf")]
+    # git-latexdiff compiles the diff under a "new/" dir; prefer that, then newest.
+    pdfs.sort(key=lambda p: ((os.sep + "new" + os.sep) in p, os.path.getmtime(p)))
+    return (pdfs[-1] if pdfs else None), aux
+
+
 def build_diff(cfg: _config.Config, old: str, new: str, out_pdf: str,
                on_line: LineSink | None = None,
                timeout: int = BUILD_TIMEOUT) -> BuildResult:
     """git-latexdiff between two commits, with the per-change index --filter.
 
-    --ln-untracked symlinks the (untracked) build/ dir from the working tree
-    back into the checkout, so latexmk writes its .aux into the *real* build/.
-    That file survives git-latexdiff's cleanup, so we read the change records
-    the filter wrote there after the build (and use -o for a reliable PDF)."""
+    We run with --no-cleanup + our own --tmpdirprefix instead of `-o` (which would
+    imply --cleanup all and delete the .aux). Then we harvest the PDF and the .aux
+    (carrying the filter's \\difchgmeta records) from the preserved work tree, so
+    the changed-pages index works for *any* project — no build_dir required."""
     out_pdf = os.path.abspath(out_pdf)
     os.makedirs(os.path.dirname(out_pdf), exist_ok=True)
-    aux_path = cfg.aux_path
-    for p in (out_pdf, aux_path):
-        if os.path.exists(p):
-            os.remove(p)
+    if os.path.exists(out_pdf):
+        os.remove(out_pdf)
+    if cfg.build_dir:
+        # Exists so --ln-untracked symlinks it into the checkout (thesis-style).
+        os.makedirs(cfg.build_path, exist_ok=True)
+        if os.path.exists(cfg.aux_path):
+            os.remove(cfg.aux_path)
 
+    prefix = tempfile.mkdtemp(prefix="ldv-gld-")
     cmd = ["git", "latexdiff", "--main", cfg.main, "--latexmk"]
     if cfg.build_dir:
-        # A project whose latexmk writes to an out_dir (via latexmkrc): point
-        # git-latexdiff at it, and ensure it exists so --ln-untracked symlinks
-        # it back into the checkout — that's what makes latexmk's .aux (with our
-        # change records) survive git-latexdiff's cleanup so we can read it below.
-        os.makedirs(cfg.build_path, exist_ok=True)
         cmd += ["--build-dir", cfg.build_dir]
     cmd += [
         "--ln-untracked",                       # pull in gitignored assets
@@ -268,20 +311,25 @@ def build_diff(cfg: _config.Config, old: str, new: str, out_pdf: str,
         "--ignore-latex-errors",
         "--no-view",
         "--quiet",
-        "-o", out_pdf,
+        "--tmpdirprefix", prefix,               # keep the work tree where we can find it
+        "--no-cleanup",                         # ...and don't delete it (that keeps the .aux)
         old, new,
     ]
     start = time.time()
-    rc, log_lines = _run_streamed(cmd, cfg.repo_root, on_line, timeout)
-    # The change index needs the .aux the build_dir symlink preserved; without a
-    # build_dir the diff PDF is still produced, the index is just empty.
-    changes = parse_changes(aux_path) if os.path.exists(out_pdf) else []
-    if cfg.build_dir:  # tidy artifacts the symlink left in build/ (keep the diff pdf)
-        for f in glob.glob(os.path.join(cfg.build_path, f"{cfg.jobname}.*")):
-            try:
-                os.remove(f)
-            except OSError:
-                pass
+    try:
+        rc, log_lines = _run_streamed(cmd, cfg.repo_root, on_line, timeout)
+        src_pdf, aux = _harvest_diff(cfg, prefix)
+        if src_pdf and os.path.exists(src_pdf):
+            shutil.copy2(src_pdf, out_pdf)
+        changes = parse_changes(aux) if (aux and os.path.exists(out_pdf)) else []
+    finally:
+        shutil.rmtree(prefix, ignore_errors=True)
+        if cfg.build_dir:  # tidy artifacts the symlink left in the real build dir
+            for f in glob.glob(os.path.join(cfg.build_path, f"{cfg.jobname}.*")):
+                try:
+                    os.remove(f)
+                except OSError:
+                    pass
     return BuildResult(os.path.exists(out_pdf), rc, out_pdf, log_lines, changes,
                        round(time.time() - start, 1))
 

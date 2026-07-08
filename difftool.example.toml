@@ -13,9 +13,8 @@ build_command = "latexmk -pdf -f -interaction=nonstopmode {main}"
 
 # --- Optional -------------------------------------------------------------
 
-# latexmk out_dir. Leave unset if latexmk writes the PDF next to main.tex.
-# Setting this (together with a latexmkrc `$out_dir`) enables the "changed
-# pages" index in the viewer, because the .aux survives git-latexdiff's cleanup.
+# latexmk out_dir. Set this only if your latexmkrc writes the PDF into a subdir
+# (so the diff build can find it). The "changed pages" index works either way.
 # build_dir = "build"
 
 # Where build_command leaves the PDF. Defaults to {build_dir}/{jobname}.pdf,
