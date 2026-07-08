@@ -230,24 +230,40 @@ function requestDiff(base, head) {
   window.open(issueUrl(base, head), "_blank");
 }
 
-// Static picker action: view the pair if it's already built, else open an issue.
+// Static picker action (synchronous — uses cached manifest + issues, so the
+// window.open stays inside the click gesture and isn't popup-blocked):
+//   built        -> view it
+//   open issue   -> open that in-progress issue (don't create a duplicate)
+//   neither      -> open a new request issue
 function requestOrView(base, head) {
   base = (base || "").trim(); head = (head || "").trim();
   if (!base || !head || base === head) { toast("Pick two different commits"); return; }
-  const m = findDiff(`${base}..${head}`);
-  if (m) view(m); else requestDiff(base, head);
+  const built = findDiff(`${base}..${head}`);
+  if (built) { view(built); return; }
+  const inProgress = openIssueFor(base, head);
+  if (inProgress) {
+    toast("Already being built — opening the request");
+    window.open(inProgress.url, "_blank");
+    return;
+  }
+  requestDiff(base, head);
 }
 
-// One button that reflects state: "Show diff" when the selected pair is built,
-// "Request diff ↗" when it isn't.
+// Three-state button reflecting the selected pair.
 function updateDiffButton() {
   const rq = $("#reqissue");
   if (!rq) return;
-  const built = !!findDiff(`${$("#base").value}..${$("#compare").value}`);
-  rq.textContent = built ? "Show diff" : "Request diff ↗";
-  rq.classList.toggle("primary", built);
-  rq.title = built ? "View this diff (already built)"
-                   : "Open a GitHub issue that builds this diff in CI";
+  const b = $("#base").value, h = $("#compare").value;
+  if (findDiff(`${b}..${h}`)) {
+    rq.textContent = "Show diff"; rq.classList.add("primary");
+    rq.title = "View this diff (already built)";
+  } else if (openIssueFor(b, h)) {
+    rq.textContent = "Building… ↗"; rq.classList.remove("primary");
+    rq.title = "Already requested — open the in-progress issue";
+  } else {
+    rq.textContent = "Request diff ↗"; rq.classList.remove("primary");
+    rq.title = "Open a GitHub issue that builds this diff in CI";
+  }
 }
 
 // Lenient match of a "a..b" spec against manifest entries (accept sha prefixes).
@@ -305,6 +321,27 @@ async function loadCommits() {
 // tags are all available from the GitHub REST API (CORS-enabled, no auth) — so
 // the picker can reference any of them.
 let BRANCHES = [], TAGS = [];
+let OPEN_ISSUES = [];       // cached open issues, to detect in-progress requests
+
+// Open (non-PR) issues, so the picker can tell "already being built" from "new".
+async function loadOpenIssues(repoFull) {
+  try {
+    const r = await fetch(`https://api.github.com/repos/${repoFull}/issues?state=open&per_page=100`,
+      { headers: { "Accept": "application/vnd.github+json" } });
+    if (!r.ok) return;
+    const d = await r.json();
+    OPEN_ISSUES = Array.isArray(d)
+      ? d.filter(i => !i.pull_request).map(i => ({ title: i.title || "", url: i.html_url }))
+      : [];
+  } catch (e) { /* ignore — falls back to plain request */ }
+}
+
+// An open issue whose title carries this pair = a render already in progress.
+function openIssueFor(base, head) {
+  const pair = `${base}..${head}`;
+  return OPEN_ISSUES.find(i => i.title.includes(pair)) || null;
+}
+
 async function loadRefsFromGitHub(repoFull) {
   const gh = p => fetch(`https://api.github.com/repos/${repoFull}/${p}`,
     { headers: { "Accept": "application/vnd.github+json" } });
@@ -588,6 +625,7 @@ async function init() {
     // to a plain "base..compare" text box if that's unavailable (e.g. private repo
     // or rate-limited).
     const picker = REPO_FULL ? await loadRefsFromGitHub(REPO_FULL) : false;
+    if (REPO_FULL) await loadOpenIssues(REPO_FULL);
     if (picker) {
       $("#controls").hidden = false;
       $("#gen").hidden = true; $("#full").hidden = true;
