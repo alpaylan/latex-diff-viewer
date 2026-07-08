@@ -51,6 +51,7 @@ jobs:
         run: |
           set -uo pipefail
           git config --global --add safe.directory '*'
+          git config --global http.postBuffer 524288000  # big PDF pushes
           docker pull -q "$IMAGE" || true
           out="$GITHUB_WORKSPACE/latexdiff-out"; mkdir -p "$out"
 
