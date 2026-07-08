@@ -1,0 +1,132 @@
+name: LaTeX diff (issue)
+
+# Reusable workflow: an issue titled "latexdiff <base>..<head>" builds that diff,
+# appends it to a Pages "store" branch (default: latexdiff-store), and comments the
+# viewer link on the issue. GitHub Pages serves that branch, so the diff renders
+# publicly with no auth (unlike Actions artifacts).
+#
+# Caller (.github/workflows/issue-diff.yml in your repo):
+#   on:
+#     issues:
+#       types: [opened, edited]
+#   jobs:
+#     diff:
+#       if: contains(github.event.issue.title, '..')
+#       uses: alpaylan/latex-diff-viewer/.github/workflows/issue-diff.yml@v1
+#       permissions:
+#         contents: write   # push the built diff to the store branch
+#         issues: write     # comment back on the issue
+#       with:
+#         title: ${{ github.event.issue.title }}
+#         issue_number: ${{ github.event.issue.number }}
+#
+# After the first request creates the store branch, set
+# Settings -> Pages -> Deploy from a branch -> latexdiff-store / (root).
+
+on:
+  workflow_call:
+    inputs:
+      title:        { type: string, required: true }
+      issue_number: { type: number, required: true }
+      config:       { type: string, default: "difftool.toml" }
+      image:        { type: string, default: "ghcr.io/alpaylan/latex-diff-viewer:v1" }
+      store_branch: { type: string, default: "latexdiff-store" }
+      retain:       { type: number, default: 50 }
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - name: Parse "base..head" from the issue title
+        id: parse
+        env:
+          TITLE: ${{ inputs.title }}
+        run: |
+          pair=$(printf '%s' "$TITLE" | grep -oE '[^[:space:]]+\.\.[^[:space:]]+' | head -1 || true)
+          if [ -z "$pair" ]; then
+            echo "No 'base..head' found in title; nothing to do."
+            echo "ok=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "base=${pair%%..*}" >> "$GITHUB_OUTPUT"
+          echo "head=${pair##*..}" >> "$GITHUB_OUTPUT"
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout source
+        if: steps.parse.outputs.ok == 'true'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare store worktree (outside the source tree)
+        if: steps.parse.outputs.ok == 'true'
+        env:
+          STORE: ${{ inputs.store_branch }}
+        run: |
+          git config --global --add safe.directory '*'
+          git fetch origin "$STORE" || true
+          if git show-ref --verify --quiet "refs/remotes/origin/$STORE"; then
+            git worktree add -B "$STORE" "$RUNNER_TEMP/store" "origin/$STORE"
+          else
+            git worktree add --orphan "$STORE" "$RUNNER_TEMP/store"
+          fi
+
+      - name: Build diff + append to store
+        if: steps.parse.outputs.ok == 'true'
+        id: build
+        env:
+          IMAGE:  ${{ inputs.image }}
+          CONFIG: ${{ inputs.config }}
+          BASE:   ${{ steps.parse.outputs.base }}
+          HEAD:   ${{ steps.parse.outputs.head }}
+          RETAIN: ${{ inputs.retain }}
+        run: |
+          set -euo pipefail
+          docker pull -q "$IMAGE" || true
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/w" -w /w \
+            -v "$RUNNER_TEMP/store:/store" \
+            -e CI=true -e GITHUB_OUTPUT=/dev/null \
+            -e GITHUB_REPOSITORY="${{ github.repository }}" \
+            "$IMAGE" store-add --config "$CONFIG" \
+              --old "$BASE" --new "$HEAD" --store /store --retain "$RETAIN" \
+              > "$RUNNER_TEMP/store.json" || true
+          sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/store" || true
+          cat "$RUNNER_TEMP/store.json" || true
+          j() { python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get(sys.argv[2],""))' "$RUNNER_TEMP/store.json" "$1" 2>/dev/null; }
+          { echo "ok=$(j ok)"; echo "id=$(j id)"; echo "changed_pages=$(j changed_pages)"; } >> "$GITHUB_OUTPUT"
+
+      - name: Commit + push store
+        if: steps.parse.outputs.ok == 'true' && steps.build.outputs.ok == 'True'
+        working-directory: ${{ runner.temp }}/store
+        env:
+          STORE: ${{ inputs.store_branch }}
+        run: |
+          git add -A
+          git -c user.email='bot@latex-diff-viewer' -c user.name='latex-diff-viewer' \
+            commit -m "diff ${{ steps.build.outputs.id }} (issue #${{ inputs.issue_number }})" \
+            || { echo "nothing to commit"; exit 0; }
+          git push origin "HEAD:$STORE"
+
+      - name: Comment on the issue
+        if: steps.parse.outputs.ok == 'true'
+        uses: actions/github-script@v7
+        env:
+          OK: ${{ steps.build.outputs.ok }}
+          DIFF_ID: ${{ steps.build.outputs.id }}
+          CHANGED: ${{ steps.build.outputs.changed_pages }}
+        with:
+          script: |
+            const ok = process.env.OK === 'True';
+            const id = process.env.DIFF_ID || '';
+            const { owner, repo } = context.repo;
+            const url = `https://${owner}.github.io/${repo}/?diff=${encodeURIComponent(id)}`;
+            const body = ok
+              ? `📄 Built \`${id}\` — **${process.env.CHANGED} changed page(s)**.\n\n`
+                + `View it here: ${url}\n\n<sub>GitHub Pages may take a minute to refresh.</sub>`
+              : `⚠️ Couldn't build a diff from this title. Use \`latexdiff <base>..<head>\` `
+                + `with two commits that exist in the repo.`;
+            await github.rest.issues.createComment(
+              { owner, repo, issue_number: ${{ inputs.issue_number }}, body });

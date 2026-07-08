@@ -321,6 +321,7 @@ class Handler(BaseHTTPRequestHandler):
             self._serve_index()
         elif path == "/api/meta":
             self._send_json({"main": CFG.main, "repo": os.path.basename(CFG.repo_root),
+                             "github": core.github_remote(CFG.repo_root),
                              "static": False})
         elif path == "/api/commits":
             self._api_commits()

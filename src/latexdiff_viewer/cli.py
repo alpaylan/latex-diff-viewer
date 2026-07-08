@@ -163,6 +163,22 @@ def cmd_pages(args) -> int:
     return 0
 
 
+def cmd_store_add(args) -> int:
+    from . import store
+    cfg = resolve(args)
+    base = args.old or default_base()
+    head = args.new or default_head() or "HEAD"
+    if not base or not head:
+        print(json.dumps({"ok": False, "error": "need --old and --new"}))
+        return 2
+    res = store.add_diff(cfg, args.store, base, head,
+                         retain=args.retain, on_line=stderr_sink)
+    print(json.dumps(res))
+    set_output("diff_id", res.get("id", ""))
+    set_output("changed_pages", res.get("changed_pages", 0))
+    return 0 if res.get("ok") else 1
+
+
 def cmd_serve(args) -> int:
     from . import server
     cfg = resolve(args)
@@ -193,6 +209,16 @@ def build_parser() -> argparse.ArgumentParser:
     add_config_args(pg)
     pg.add_argument("-o", "--out", default=None, help="output site directory")
     pg.set_defaults(func=cmd_pages)
+
+    sa = sub.add_parser("store-add",
+                        help="build one diff and append it to a Pages store dir")
+    add_config_args(sa)
+    sa.add_argument("--old", default=None, help="base ref")
+    sa.add_argument("--new", default=None, help="compare ref")
+    sa.add_argument("--store", required=True, help="store directory (served by Pages)")
+    sa.add_argument("--retain", type=int, default=50,
+                    help="keep this many most-recent diffs (default 50)")
+    sa.set_defaults(func=cmd_store_add)
 
     s = sub.add_parser("serve", help="run the interactive local web UI")
     add_config_args(s)

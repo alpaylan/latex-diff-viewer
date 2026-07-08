@@ -1,0 +1,29 @@
+# Copy this to .github/workflows/issue-diff.yml in your LaTeX project.
+#
+# Open an issue titled  "latexdiff <base>..<head>"  (e.g. "latexdiff v1..HEAD")
+# and this builds that diff, publishes it to the `latexdiff-store` branch, and
+# comments a viewer link on the issue. The local viewer's "Request diff" button
+# opens exactly such an issue for you.
+#
+# One-time setup, AFTER the first request creates the branch:
+#   Settings -> Pages -> Deploy from a branch -> latexdiff-store / (root)
+
+name: LaTeX diff (issue)
+
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  diff:
+    # Only issues whose title carries a "base..head" pair.
+    if: contains(github.event.issue.title, '..')
+    uses: alpaylan/latex-diff-viewer/.github/workflows/issue-diff.yml@v1
+    permissions:
+      contents: write     # push the built diff to the store branch
+      issues: write       # comment the viewer link back on the issue
+    with:
+      title: ${{ github.event.issue.title }}
+      issue_number: ${{ github.event.issue.number }}
+      config: difftool.toml
+      # retain: 50        # how many diffs to keep in the store branch

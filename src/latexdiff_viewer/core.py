@@ -78,6 +78,16 @@ def rev_parse(repo_root: str, ref: str) -> str:
     return git(repo_root, "rev-parse", ref).strip()
 
 
+def github_remote(repo_root: str) -> str | None:
+    """"owner/repo" parsed from the origin remote, or None if it isn't GitHub."""
+    try:
+        url = git(repo_root, "remote", "get-url", "origin").strip()
+    except Exception:  # noqa: BLE001
+        return None
+    m = re.search(r"github\.com[:/]+([^/]+)/([^/]+?)(?:\.git)?/?$", url)
+    return f"{m.group(1)}/{m.group(2)}" if m else None
+
+
 def recent_commit_pairs(repo_root: str, n: int) -> list[list[str]]:
     """[[parent, commit], ...] for the last n commits that have a parent, newest
     first. Used to pre-build a per-commit diff history for the Pages viewer."""

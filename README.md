@@ -79,6 +79,18 @@ A ready-to-copy version lives in [`examples/consumer.yml`](examples/consumer.yml
 
 Outputs: `diff_pdf`, `full_pdf`, `changed_pages`.
 
+### On-demand diffs via issues
+
+Add [`examples/issue-diff.yml`](examples/issue-diff.yml) and anyone can request a
+diff by **opening an issue titled `latexdiff <base>..<head>`**. The workflow builds
+it, publishes it to a `latexdiff-store` branch, and comments a viewer link. GitHub
+Pages serves that branch (Settings → Pages → *Deploy from a branch* →
+`latexdiff-store`), so the diff renders publicly — and the viewer offers a
+**"Request diff"** button that opens exactly such an issue for pairs that aren't
+built yet (a self-filling cache). The store keeps the most recent `retain`
+(default 50) diffs. Note: Actions *artifacts* can't power this (they need auth and
+expire); the store branch is what makes the diffs publicly reachable.
+
 ---
 
 ## 2. Local interactive viewer
