@@ -10,7 +10,13 @@
 > `#fragment` as `tokenHashPrefix` (link-sharing v2) — implemented, plus a
 > grant-flow mock in `tests/mock_overleaf.py` run by CI. Share links render
 > in the browser (user-confirmed).
-> Deferred: repo share media, `link --git` against a real premium account.
+> Deferred: repo share media, `link --git` against a real premium account,
+> and **macro pre-expansion**: latexdiff can't mark up preamble changes, so
+> redefining a macro (e.g. `\newcommand{\db}{Turso}` → `{Limbo}`) silently
+> changes the rendered document with `changed_pages: 0` — hit on a real
+> paper 2026-07-09. An opt-in pass expanding user macros before diffing
+> would surface those edits; sharp edges (fragile macros, packages), design
+> before building.
 
 ## Context
 
