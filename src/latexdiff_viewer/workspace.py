@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -198,6 +199,37 @@ def save(project_dir: str, message: str | None = None,
     finally:
         if tmp:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+def resolve_ref(repo: str, token: str) -> str:
+    """Turn a user-facing timeline point into a git ref in the shadow repo.
+
+    Accepted forms, tried in order: a save id (`s3`, or bare `3`), a date
+    (`2026-07-01`, `2026-07-01 14:30` — the last save at or before it), and
+    anything git itself resolves (tags, short hashes, `HEAD~2`). Raises
+    ValueError with a user-facing message otherwise.
+    """
+    t = token.strip()
+    m = re.fullmatch(r"s?(\d{1,6})", t)
+    if m:
+        tag = f"s{m.group(1)}"
+        try:
+            core.git(repo, "rev-parse", "--verify", "-q", f"refs/tags/{tag}")
+            return tag
+        except subprocess.CalledProcessError:
+            if t.startswith("s"):
+                raise ValueError(f"no such save: {tag}") from None
+            # bare digits that aren't a save number: fall through to git
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?", t):
+        sha = core.git(repo, "rev-list", "-1", f"--before={t}", "HEAD").strip()
+        if not sha:
+            raise ValueError(f"no save at or before {t}")
+        return sha
+    try:
+        core.git(repo, "rev-parse", "--verify", "-q", f"{t}^{{commit}}")
+        return t
+    except subprocess.CalledProcessError:
+        raise ValueError(f"cannot resolve {token!r} to a save, date, or ref") from None
 
 
 def timeline(project_dir: str) -> list[dict]:

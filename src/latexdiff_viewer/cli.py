@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -232,6 +233,51 @@ def cmd_list(args) -> int:
     return 0
 
 
+def _shadow_or_error(project: str) -> str | None:
+    from . import workspace
+    repo = workspace.shadow_root(project)
+    if not os.path.isdir(os.path.join(repo, ".git")):
+        print(json.dumps({"ok": False,
+                          "error": "no saves yet — run `ldv save` first"}))
+        return None
+    return repo
+
+
+def _safe_name(token: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", token)
+
+
+def cmd_diff(args) -> int:
+    from . import workspace
+    repo = _shadow_or_error(args.project)
+    if not repo:
+        return 2
+    try:
+        a = workspace.resolve_ref(repo, args.a)
+        b = workspace.resolve_ref(repo, args.b) if args.b else "HEAD"
+    except ValueError as e:
+        print(json.dumps({"ok": False, "error": str(e)}))
+        return 2
+    cfg = _config.load(repo)
+    out = args.out or os.path.join(workspace.project_state_dir(args.project),
+                                   "out", f"diff-{_safe_name(a)}-{_safe_name(b)}.pdf")
+    res = core.build_diff(cfg, a, b, out, on_line=stderr_sink)
+    print(json.dumps({"ok": res.ok, "rc": res.rc, "pdf": res.out_pdf,
+                      "old": a, "new": b, "elapsed": res.elapsed,
+                      "changed_pages": len(res.changes), "changes": res.changes}))
+    return 0 if res.ok else 1
+
+
+def cmd_view(args) -> int:
+    from . import server, workspace
+    repo = _shadow_or_error(args.project)
+    if not repo:
+        return 2
+    server.configure(_config.load(repo))
+    server.run_server(args.host, args.port)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="latex-diff-viewer",
                                  description="git-latexdiff for any LaTeX project")
@@ -293,6 +339,23 @@ def build_parser() -> argparse.ArgumentParser:
                     help="project folder (default: cwd)")
     ls.add_argument("--json", action="store_true", help="machine-readable output")
     ls.set_defaults(func=cmd_list)
+
+    df = sub.add_parser("diff",
+                        help="latexdiff PDF between two saves/dates/refs")
+    df.add_argument("a", help="base: save id (s1), date (2026-07-01), or ref")
+    df.add_argument("b", nargs="?", default=None,
+                    help="compare point (default: the latest save)")
+    df.add_argument("--project", default=os.getcwd(),
+                    help="project folder (default: cwd)")
+    df.add_argument("-o", "--out", default=None, help="output PDF path")
+    df.set_defaults(func=cmd_diff)
+
+    vw = sub.add_parser("view", help="browse saves in the local web viewer")
+    vw.add_argument("--project", default=os.getcwd(),
+                    help="project folder (default: cwd)")
+    vw.add_argument("--host", default="127.0.0.1")
+    vw.add_argument("--port", type=int, default=8765)
+    vw.set_defaults(func=cmd_view)
     return ap
 
 
