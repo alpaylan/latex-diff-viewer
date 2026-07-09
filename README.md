@@ -12,21 +12,7 @@ through), and click a changed page to jump straight to it. The
 [demo repo](https://github.com/alpaylan/latex-diff-viewer-demo) is a tiny paper with
 a curated commit history (text edits, a table/float change, a section add).
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│  LaTeX diff viewer · paper.tex                           added  removed  │
-├────────────────┬──────────────────────────────────────┬─────────────────┤
-│ Base   [v1  ▾] │                                        │ Changed pages   │
-│ Compare[HEAD▾] │            diff PDF (rendered)         │   +  Page 1     │
-│ [ Show diff ]  │      added text · ~~removed text~~     │   ±  Page 7     │
-│                │                                        │   (click → jump)│
-│ Diffs          │                                        │                 │
-│  • v2   7 pp   │                                        │                 │
-│  • v1.1 3 pp   │                                        │                 │
-│ Renders        │                                        │                 │
-│  • Current ★   │                                        │                 │
-└────────────────┴──────────────────────────────────────┴─────────────────┘
-```
+![Walkthrough: open a diff, jump to a changed page, view an added section](https://raw.githubusercontent.com/alpaylan/latex-diff-viewer-demo/main/demo.gif)
 
 ---
 
