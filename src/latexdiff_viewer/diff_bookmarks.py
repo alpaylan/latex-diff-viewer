@@ -44,6 +44,14 @@ INJECT = r"""
       \fi
     \fi
   \fi}
+% hyperref builds the PDF-outline string for every section title by *expanding* it
+% through \pdfstringdef. A changed heading (latexdiff emits \section{\DIFadd{...}})
+% would drag our non-expandable \difchgmark (\write/\stepcounter/zref) into that
+% expansion and fail with "Missing \endcsname". Make the mark a no-op there — it
+% still runs during real typesetting, so the change index is unaffected.
+\ifdefined\pdfstringdefDisableCommands
+  \pdfstringdefDisableCommands{\def\difchgmark#1{}}%
+\fi
 % Hook \DIFadd / \DIFdel (which wrap the actual coloured/struck *text*) rather
 % than \DIFaddbegin / \DIFdelbegin: the begin-markers also wrap structural,
 % non-rendering changes (e.g. an edit inside a \chapter title).
