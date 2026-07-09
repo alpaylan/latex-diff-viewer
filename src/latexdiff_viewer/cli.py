@@ -5,6 +5,7 @@
     python3 -m latexdiff_viewer.cli build-full --commit HEAD -o out/full.pdf
     python3 -m latexdiff_viewer.cli pages --out site
     python3 -m latexdiff_viewer.cli serve --port 8765
+    ldv save / ldv list        # personal save timeline (see workspace.py)
 
 Build instructions are resolved by `config` from a difftool.toml/json in --repo,
 overridden by Action inputs (env INPUT_*) and then by any explicit flag here.
@@ -211,6 +212,26 @@ def cmd_serve(args) -> int:
     return 0
 
 
+def cmd_save(args) -> int:
+    from . import workspace
+    res = workspace.save(args.project, message=args.message, src=args.src)
+    print(json.dumps(res))
+    return 0 if res.get("ok") else 1
+
+
+def cmd_list(args) -> int:
+    from . import workspace
+    entries = workspace.timeline(args.project)
+    if args.json:
+        print(json.dumps({"ok": True, "saves": entries}))
+    elif not entries:
+        print("no saves yet — run `ldv save` in the project folder")
+    else:
+        for e in entries:
+            print(f"{e['id']:>6}  {e['date']}  {e['message']}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="latex-diff-viewer",
                                  description="git-latexdiff for any LaTeX project")
@@ -257,6 +278,21 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8765)
     s.set_defaults(func=cmd_serve)
+
+    sv = sub.add_parser("save", help="snapshot the project into its save timeline")
+    sv.add_argument("--project", default=os.getcwd(),
+                    help="project folder (default: cwd)")
+    sv.add_argument("-m", "--message", default=None, help="save message")
+    sv.add_argument("--from", dest="src", default=None, metavar="ZIP|DIR",
+                    help="snapshot this source zip/folder instead of the "
+                         "project folder (e.g. an Overleaf download)")
+    sv.set_defaults(func=cmd_save)
+
+    ls = sub.add_parser("list", help="list the project's saves")
+    ls.add_argument("--project", default=os.getcwd(),
+                    help="project folder (default: cwd)")
+    ls.add_argument("--json", action="store_true", help="machine-readable output")
+    ls.set_defaults(func=cmd_list)
     return ap
 
 
