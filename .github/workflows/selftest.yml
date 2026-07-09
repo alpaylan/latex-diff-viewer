@@ -42,7 +42,9 @@ jobs:
           docker run --rm -v "$work:/w" -w /w ldv:test \
             build-diff --old HEAD~1 --new HEAD -o /w/out/diff.pdf | tee "$RUNNER_TEMP/diff.json"
           test -s "$work/out/diff.pdf"
-          python3 -c 'import json;d=json.load(open("'"$RUNNER_TEMP"'/diff.json"));assert d["ok"], d'
+          # ok AND a non-empty changed-pages index: pre-v1.1.11 the added \section
+          # made the build fail (empty diff), so assert both, not just ok.
+          python3 -c 'import json;d=json.load(open("'"$RUNNER_TEMP"'/diff.json"));assert d["ok"], d;assert d["changed_pages"]>0, d'
           echo "diff OK"
 
       - name: build-full

@@ -1,4 +1,9 @@
 \documentclass{article}
+% hyperref is deliberate: the v2 diff adds a \section, and latexdiff renders a
+% changed heading as \section{\DIFadd{...}}. hyperref builds the PDF outline by
+% expanding that title through \pdfstringdef — the path that regressed in <v1.1.11
+% (a changed section failed the whole build). Keep it so the selftest guards that.
+\usepackage{hyperref}
 \title{Sample Project}
 \author{latex-diff-viewer}
 \begin{document}
