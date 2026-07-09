@@ -1,5 +1,13 @@
 # Plan: `ldv` — personal save/diff/share flow + Overleaf support
 
+> **Status (2026-07-09):** phases 0–5 implemented and verified; gist is the
+> only share medium so far (private/public repo media still to do). The
+> hosted viewer lives at the demo repo's existing Pages root
+> (`https://alpaylan.github.io/latex-diff-viewer-demo/#<gist-id>`) — the
+> store viewer and the hosted share viewer are the same index.html.
+> Deferred: repo share media, `link --git` + read-link `pull` against real
+> Overleaf (needs a real link/account), browser-level check of a share link.
+
 ## Context
 
 Today the tool is coupled to a git repo and centers on CI: workflows build diffs,

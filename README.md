@@ -144,6 +144,44 @@ use the Docker image, which has them.
 
 ---
 
+## Personal saves & Overleaf (`ldv`)
+
+No git, no CI: snapshot a folder whenever you like, diff any two snapshots,
+share the result as a link. Works for Overleaf projects on any plan.
+
+```bash
+pip install git+https://github.com/alpaylan/latex-diff-viewer  # gives you `ldv`
+
+cd my-paper/
+ldv save -m "before the rewrite"     # snapshot -> s1, s2, … (stored under ~/.local/state/ldv)
+ldv list                             # the timeline
+ldv diff s1 s3                       # latexdiff PDF between two saves
+ldv diff s1                          # …or against the latest save
+ldv diff 2026-07-01 2026-07-09       # …or by date (last save at/before each)
+ldv view                             # browse saves in the local web viewer
+```
+
+**Sharing.** `ldv diff s1 s3 --share` publishes the diff to a per-project
+*secret gist* (needs the [GitHub CLI](https://cli.github.com), `gh auth login`)
+and prints a viewer link you can send to co-authors — no install needed on
+their side. Secret gists are unlisted and off your profile, but **anyone with
+the link can read the diff** — don't share embargoed work this way.
+
+**Overleaf.**
+- Any plan: `ldv link <read-only share link>` then `ldv pull` after edits —
+  each pull that changed something becomes a save. (This uses the same
+  endpoints your browser does; if Overleaf changes them, download the zip via
+  Menu → Download → Source and run `ldv save --from project.zip`.)
+- Premium (git bridge): `ldv link --git <project-id>` clones the project's
+  git history as the timeline; `ldv pull` updates it. Dates and Overleaf
+  version labels work as `ldv diff` points; label milestones in Overleaf's
+  history to pin them.
+
+Building diffs locally still needs the TeX toolchain (`git-latexdiff`,
+`latexmk`); `save`/`list`/`pull`/`--share` of an existing diff do not.
+
+---
+
 ## Alternatives
 
 - **Artifact only (no Pages).** Use the composite action directly for a PR comment +
@@ -173,6 +211,10 @@ latex-diff-viewer store-add   --old A --new B --store site      # append a diff 
 latex-diff-viewer store-seed  --store site                      # append recent diffs + a full render
 latex-diff-viewer serve       --port 8765                       # local interactive UI
 ```
+
+Personal-flow subcommands (`ldv` is the same CLI): `save`, `list`,
+`diff <a> [<b>] [--share]`, `view`, `link`, `pull` — see
+[Personal saves & Overleaf](#personal-saves--overleaf-ldv).
 
 ## Development
 

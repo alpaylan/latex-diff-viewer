@@ -65,3 +65,20 @@ jobs:
           test -s "$work/site/index.html"
           python3 -c 'import json;m=json.load(open("'"$work"'/site/manifest.json"));assert m["diffs"], m'
           echo "pages OK"
+
+      # The gitless personal flow: save -> edit -> save -> diff s1 s2.
+      - name: personal save/diff flow
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/sample"
+          state="$RUNNER_TEMP/ldv-state"; mkdir -p "$state"
+          run() { docker run --rm -e XDG_STATE_HOME=/state \
+                    -v "$work:/w" -v "$state:/state" -w /w ldv:test "$@"; }
+          run save -m "first" | tee "$RUNNER_TEMP/s1.json"
+          python3 -c 'import json;d=json.load(open("'"$RUNNER_TEMP"'/s1.json"));assert d["ok"] and d["id"]=="s1", d'
+          sed -i 's/version two/version three/' "$work/main.tex"
+          run save -m "second"
+          run diff s1 s2 -o /w/out/save-diff.pdf | tee "$RUNNER_TEMP/sd.json"
+          python3 -c 'import json;d=json.load(open("'"$RUNNER_TEMP"'/sd.json"));assert d["ok"], d;assert d["changed_pages"]>0, d'
+          test -s "$work/out/save-diff.pdf"
+          echo "personal flow OK"
