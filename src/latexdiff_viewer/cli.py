@@ -215,6 +215,11 @@ def cmd_serve(args) -> int:
 
 def cmd_save(args) -> int:
     from . import workspace
+    origin = workspace.load_state(args.project).get("origin") or {}
+    if origin.get("kind") == "git-bridge":
+        print(json.dumps({"ok": False, "error":
+                          "linked to the Overleaf git bridge — use `ldv pull`"}))
+        return 2
     res = workspace.save(args.project, message=args.message, src=args.src)
     print(json.dumps(res))
     return 0 if res.get("ok") else 1
@@ -258,6 +263,11 @@ def cmd_diff(args) -> int:
     except ValueError as e:
         print(json.dumps({"ok": False, "error": str(e)}))
         return 2
+    if args.share:
+        from . import share
+        res = share.share_diff(args.project, a, b, on_line=stderr_sink)
+        print(json.dumps(res))
+        return 0 if res.get("ok") else 1
     cfg = _config.load(repo)
     out = args.out or os.path.join(workspace.project_state_dir(args.project),
                                    "out", f"diff-{_safe_name(a)}-{_safe_name(b)}.pdf")
@@ -266,6 +276,20 @@ def cmd_diff(args) -> int:
                       "old": a, "new": b, "elapsed": res.elapsed,
                       "changed_pages": len(res.changes), "changes": res.changes}))
     return 0 if res.ok else 1
+
+
+def cmd_link(args) -> int:
+    from . import overleaf
+    res = overleaf.link(args.project, url=args.url, git_url=args.git)
+    print(json.dumps(res))
+    return 0 if res.get("ok") else 1
+
+
+def cmd_pull(args) -> int:
+    from . import overleaf
+    res = overleaf.pull(args.project)
+    print(json.dumps(res))
+    return 0 if res.get("ok") else 1
 
 
 def cmd_view(args) -> int:
@@ -348,7 +372,24 @@ def build_parser() -> argparse.ArgumentParser:
     df.add_argument("--project", default=os.getcwd(),
                     help="project folder (default: cwd)")
     df.add_argument("-o", "--out", default=None, help="output PDF path")
+    df.add_argument("--share", action="store_true",
+                    help="publish to the project's share gist (secret, "
+                         "anyone with the link can view) and print the link")
     df.set_defaults(func=cmd_diff)
+
+    lk = sub.add_parser("link", help="connect an Overleaf project as the origin")
+    lk.add_argument("url", nargs="?", default=None,
+                    help="Overleaf read-only share link")
+    lk.add_argument("--git", default=None, metavar="URL|PROJECT_ID",
+                    help="premium: clone the Overleaf git bridge instead")
+    lk.add_argument("--project", default=os.getcwd(),
+                    help="project folder (default: cwd)")
+    lk.set_defaults(func=cmd_link)
+
+    pl = sub.add_parser("pull", help="refresh saves from the linked Overleaf")
+    pl.add_argument("--project", default=os.getcwd(),
+                    help="project folder (default: cwd)")
+    pl.set_defaults(func=cmd_pull)
 
     vw = sub.add_parser("view", help="browse saves in the local web viewer")
     vw.add_argument("--project", default=os.getcwd(),
