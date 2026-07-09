@@ -19,6 +19,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -303,6 +304,12 @@ def cmd_diff(args) -> int:
     except ValueError as e:
         print(json.dumps({"ok": False, "error": str(e)}))
         return 2
+    missing = _missing_diff_tools()
+    if missing:
+        print(json.dumps({"ok": False, "error":
+                          "missing tools for building diffs: "
+                          + ", ".join(missing) + " — run `ldv doctor`"}))
+        return 2
     if args.share:
         from . import share
         res = share.share_diff(project, a, b, on_line=stderr_sink)
@@ -333,6 +340,64 @@ def cmd_pull(args) -> int:
     res = overleaf.pull(project)
     print(json.dumps(res))
     return 0 if res.get("ok") else 1
+
+
+# What each feature needs on PATH. An engine is checked separately (any of
+# several works, and which one matters depends on the project's build_command).
+DIFF_TOOLS = ("git-latexdiff", "latexdiff", "latexmk", "latexpand")
+ENGINES = ("pdflatex", "xelatex", "lualatex")
+
+DOCTOR_HINTS = {
+    "git": "install git",
+    "git-latexdiff": "brew install git-latexdiff (macOS) — "
+                     "or gitlab.com/git-latexdiff/git-latexdiff",
+    "latexdiff": "ships with TeX Live / MacTeX",
+    "latexmk": "ships with TeX Live / MacTeX",
+    "latexpand": "ships with TeX Live / MacTeX",
+    "engine": "install a TeX distribution (TeX Live / MacTeX)",
+}
+
+
+def _missing_diff_tools() -> list[str]:
+    missing = [t for t in DIFF_TOOLS if not shutil.which(t)]
+    if not any(shutil.which(e) for e in ENGINES):
+        missing.append("a LaTeX engine")
+    return missing
+
+
+def cmd_doctor(args) -> int:
+    from . import share
+    checks = []
+
+    def add(need: str, name: str, ok: bool, hint: str = "") -> None:
+        checks.append({"need": need, "name": name, "ok": ok,
+                       "hint": "" if ok else hint})
+
+    add("save/pull", f"python {sys.version.split()[0]}",
+        sys.version_info >= (3, 11), "need Python 3.11+")
+    add("save/pull", "git", bool(shutil.which("git")), DOCTOR_HINTS["git"])
+    for t in DIFF_TOOLS:
+        add("diff", t, bool(shutil.which(t)), DOCTOR_HINTS[t])
+    engines = [e for e in ENGINES if shutil.which(e)]
+    add("diff", "LaTeX engine (" + (", ".join(engines) or "none") + ")",
+        bool(engines), DOCTOR_HINTS["engine"])
+    gh_err = share.ensure_gh()
+    add("share", "gh (authenticated)", gh_err is None, gh_err or "")
+
+    ready = {need: all(c["ok"] for c in checks if c["need"] == need)
+             for need in ("save/pull", "diff", "share")}
+    if args.json:
+        print(json.dumps({"ok": ready["save/pull"], "ready": ready,
+                          "checks": checks}))
+    else:
+        for c in checks:
+            mark = "ok " if c["ok"] else "MISSING"
+            line = f"{c['need']:9} {mark:8} {c['name']}"
+            print(line + (f"  — {c['hint']}" if c["hint"] else ""))
+        summary = ", ".join(f"{k}: {'ready' if v else 'not ready'}"
+                            for k, v in ready.items())
+        print(f"\n{summary}")
+    return 0 if ready["save/pull"] else 1
 
 
 def cmd_view(args) -> int:
@@ -415,6 +480,11 @@ def build_parser() -> argparse.ArgumentParser:
     pj = sub.add_parser("projects", help="list every known project")
     pj.add_argument("--json", action="store_true", help="machine-readable output")
     pj.set_defaults(func=cmd_projects)
+
+    dr = sub.add_parser("doctor",
+                        help="check the tools each ldv feature needs")
+    dr.add_argument("--json", action="store_true", help="machine-readable output")
+    dr.set_defaults(func=cmd_doctor)
 
     df = sub.add_parser("diff",
                         help="latexdiff PDF between two saves/dates/refs")

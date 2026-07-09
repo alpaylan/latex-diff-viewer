@@ -151,6 +151,7 @@ share the result as a link. Works for Overleaf projects on any plan.
 
 ```bash
 pip install git+https://github.com/alpaylan/latex-diff-viewer  # gives you `ldv`
+ldv doctor        # checks what's installed and which features are ready
 
 cd my-paper/
 ldv save -m "before the rewrite"     # snapshot -> s1, s2, … (stored under ~/.local/state/ldv)
