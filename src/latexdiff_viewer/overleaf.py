@@ -22,6 +22,7 @@ from the link itself).
 from __future__ import annotations
 
 import http.cookiejar
+import json
 import os
 import re
 import subprocess
@@ -60,23 +61,35 @@ def fetch_zip(read_url: str, dest_zip: str, timeout: int = 120) -> None:
     """Download the project source zip reachable through `read_url`."""
     parts = urllib.parse.urlsplit(read_url)
     base = f"{parts.scheme}://{parts.netloc}"
+    clean = urllib.parse.urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, parts.query, ""))
     op = _opener()
-    with op.open(read_url, timeout=timeout) as r:
+    with op.open(clean, timeout=timeout) as r:
         final, html = r.geturl(), r.read(2_000_000).decode("utf-8", "replace")
     pid = _find_pid(final, html)
     if not pid:
-        # Newer Overleaf wants the anonymous session to claim the token first.
+        # The read link serves a grant interstitial; do what its JS does:
+        # confirm the token, passing the link's #fragment as the hash check
+        # (link-sharing v2 rejects the grant without it).
         m = re.search(r'name="ol-csrfToken"\s+content="([^"]+)"', html)
-        token = read_url.rstrip("/").rsplit("/", 1)[-1]
         if m:
+            body: dict = {"confirmedByUser": False}
+            if parts.fragment:
+                body["tokenHashPrefix"] = f"#{parts.fragment}"
             req = urllib.request.Request(
-                f"{base}/read/{token}/grant", method="POST",
-                data=b"{}", headers={"Content-Type": "application/json",
-                                     "X-Csrf-Token": m.group(1)})
+                f"{base}{parts.path.rstrip('/')}/grant", method="POST",
+                data=json.dumps(body).encode("utf-8"),
+                headers={"Content-Type": "application/json",
+                         "Accept": "application/json",
+                         "X-Csrf-Token": m.group(1)})
             try:
                 with op.open(req, timeout=timeout) as r:
-                    body = r.read(1_000_000).decode("utf-8", "replace")
-                pid = _find_pid(r.geturl(), body)
+                    payload = r.read(1_000_000).decode("utf-8", "replace")
+                try:
+                    redirect = json.loads(payload).get("redirect", "")
+                except ValueError:
+                    redirect = ""
+                pid = _find_pid(redirect, payload)
             except OSError:
                 pid = None
     if not pid:

@@ -82,3 +82,23 @@ jobs:
           python3 -c 'import json;d=json.load(open("'"$RUNNER_TEMP"'/sd.json"));assert d["ok"], d;assert d["changed_pages"]>0, d'
           test -s "$work/out/save-diff.pdf"
           echo "personal flow OK"
+
+      # The Overleaf read-link flow against the grant-interstitial mock —
+      # save/pull need no TeX, so this runs on the bare runner.
+      - name: overleaf read-link flow (mock)
+        run: |
+          set -euo pipefail
+          export XDG_STATE_HOME="$RUNNER_TEMP/ol-state" PYTHONPATH=src
+          proj="$RUNNER_TEMP/olproj"; mkdir -p "$proj"
+          python3 tests/mock_overleaf.py 8973 "version A" & MOCK=$!
+          sleep 1
+          python3 -m latexdiff_viewer.cli link --project "$proj" \
+            "http://127.0.0.1:8973/read/tok#ccbb9b" | tee "$RUNNER_TEMP/l1.json"
+          python3 -c 'import json;d=json.load(open("'"$RUNNER_TEMP"'/l1.json"));assert d["ok"] and d["id"]=="s1", d'
+          kill $MOCK; wait $MOCK 2>/dev/null || true
+          python3 tests/mock_overleaf.py 8973 "version B" & MOCK=$!
+          sleep 1
+          python3 -m latexdiff_viewer.cli pull --project "$proj" | tee "$RUNNER_TEMP/l2.json"
+          python3 -c 'import json;d=json.load(open("'"$RUNNER_TEMP"'/l2.json"));assert d["ok"] and d["id"]=="s2" and not d.get("unchanged"), d'
+          kill $MOCK 2>/dev/null || true
+          echo "overleaf mock OK"

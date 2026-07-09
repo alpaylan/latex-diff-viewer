@@ -5,8 +5,12 @@
 > hosted viewer lives at the demo repo's existing Pages root
 > (`https://alpaylan.github.io/latex-diff-viewer-demo/#<gist-id>`) — the
 > store viewer and the hosted share viewer are the same index.html.
-> Deferred: repo share media, `link --git` + read-link `pull` against real
-> Overleaf (needs a real link/account), browser-level check of a share link.
+> Verified against real Overleaf (2026-07-09): the read link serves a grant
+> interstitial; the grant POST needs the csrf token **and** the link's
+> `#fragment` as `tokenHashPrefix` (link-sharing v2) — implemented, plus a
+> grant-flow mock in `tests/mock_overleaf.py` run by CI. Share links render
+> in the browser (user-confirmed).
+> Deferred: repo share media, `link --git` against a real premium account.
 
 ## Context
 
