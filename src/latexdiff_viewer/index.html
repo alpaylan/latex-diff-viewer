@@ -183,6 +183,7 @@ let activeId = null;
 let pollTimer = null;
 let autoViewed = false;
 let STATIC = false, MANIFEST = null, REPO_FULL = null;
+let GIST = null;   // remote share mode: filename -> gist raw_url
 let BRANCHES = [], TAGS = [], OPEN_ISSUES = [];
 
 function toast(msg) {
@@ -191,14 +192,25 @@ function toast(msg) {
   clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2600);
 }
 function optionLabel(c) { return `${c.date}  ·  ${c.subject}`; }
-function pdfUrl(d) { return STATIC ? d.pdf : "/pdf/" + encodeURIComponent(d.id); }
+function pdfUrl(d) {
+  if (GIST) return GIST[d.pdf] || d.pdf;
+  return STATIC ? d.pdf : "/pdf/" + encodeURIComponent(d.id);
+}
 function esc(s) { return (s || "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;" }[c])); }
 
-function downloadPdf(d) {
+async function downloadPdf(d) {
+  const name = d.pdf || ((d.id || "diff").replace(/[^\w.-]+/g, "_") + ".pdf");
+  let href = pdfUrl(d), blobUrl = null;
+  if (GIST) {
+    // Cross-origin `download` attrs are ignored, and gist raw serves
+    // text/plain — pull the bytes and hand the browser a same-origin blob.
+    try { blobUrl = href = URL.createObjectURL(await (await fetch(href)).blob()); }
+    catch (e) { toast("Download failed: " + e.message); return; }
+  }
   const a = document.createElement("a");
-  a.href = pdfUrl(d);
-  a.download = d.pdf || ((d.id || "diff").replace(/[^\w.-]+/g, "_") + ".pdf");
+  a.href = href; a.download = name;
   document.body.appendChild(a); a.click(); a.remove();
+  if (blobUrl) setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
 }
 
 // ---- PDF.js viewer -------------------------------------------------------
@@ -530,6 +542,22 @@ async function loadManifest() {
   const label = [MANIFEST.repo, MANIFEST.main].filter(Boolean).join(" · ");
   if (label) $("#project").textContent = label;
 }
+async function loadGist(id) {
+  // Remote share: the gist holds manifest.json + the PDFs (flat); gist raw
+  // URLs serve with CORS *, so this page works from any host.
+  const r = await fetch(`https://api.github.com/gists/${id}`);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const g = await r.json();
+  GIST = {};
+  for (const [name, f] of Object.entries(g.files || {})) GIST[name] = f.raw_url;
+  const mf = (g.files || {})["manifest.json"];
+  if (!mf) throw new Error("no manifest.json in this share");
+  MANIFEST = mf.truncated || !mf.content
+    ? await (await fetch(mf.raw_url)).json() : JSON.parse(mf.content);
+  REPO_FULL = null;   // data-only store: no repo-backed request flow
+  const label = [MANIFEST.repo, MANIFEST.main].filter(Boolean).join(" · ");
+  if (label) $("#project").textContent = label;
+}
 function handleDiffParam() {
   const want = new URLSearchParams(location.search).get("diff");
   if (!want || !want.includes("..")) return;
@@ -549,6 +577,19 @@ function wireCommon() {
 }
 async function init() {
   wireCommon();
+  const gm = location.hash.match(/^#(?:gist=)?([0-9a-f]{6,64})$/i);
+  if (gm) {
+    STATIC = true;
+    try { await loadGist(gm[1]); }
+    catch (e) {
+      $("#project").textContent = "share not found";
+      toast("Couldn't load share: " + e.message);
+      return;
+    }
+    renderAll(MANIFEST.diffs || []);
+    handleDiffParam();
+    return;
+  }
   STATIC = await detectMode();
   if (STATIC) {
     await loadManifest();
