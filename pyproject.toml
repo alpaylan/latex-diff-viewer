@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "latexdiff-viewer"
+description = "git-latexdiff PDFs + a changed-pages viewer for any LaTeX project"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE", "THIRD-PARTY-NOTICES.md"]
+# 3.11+: tomllib (difftool.toml) — same floor the Docker image ships.
+requires-python = ">=3.11"
+dynamic = ["version"]
+
+[project.scripts]
+ldv = "latexdiff_viewer.cli:main"
+latexdiff-viewer = "latexdiff_viewer.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "latexdiff_viewer.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+# server.py/pages.py locate the viewer next to the module (__file__-relative).
+latexdiff_viewer = ["index.html"]
