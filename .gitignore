@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
+*.egg-info/
 # Local run output / caches
 site/
 latexdiff-out/
