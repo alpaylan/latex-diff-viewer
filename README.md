@@ -6,13 +6,15 @@ via on-demand requests, and as a published, browsable web viewer. All the TeX
 tooling ships in a prebuilt Docker image; you provide only your build instructions
 (often none — it auto-detects).
 
-**Live demo:** <https://alpaylan.github.io/arxiv-style/> — pick two commits, view the
-rendered diff (added text blue + underlined, removed red + struck through), and
-click a changed page to jump straight to it.
+**Live demo:** <https://alpaylan.github.io/latex-diff-viewer-demo/> — pick two
+commits, view the rendered diff (added text blue + underlined, removed red + struck
+through), and click a changed page to jump straight to it. The
+[demo repo](https://github.com/alpaylan/latex-diff-viewer-demo) is a tiny paper with
+a curated commit history (text edits, a table/float change, a section add).
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│  LaTeX diff viewer · arxiv-style · template.tex          added  removed  │
+│  LaTeX diff viewer · paper.tex                           added  removed  │
 ├────────────────┬──────────────────────────────────────┬─────────────────┤
 │ Base   [v1  ▾] │                                        │ Changed pages   │
 │ Compare[HEAD▾] │            diff PDF (rendered)         │   +  Page 1     │
