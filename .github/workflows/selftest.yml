@@ -89,16 +89,16 @@ jobs:
         run: |
           set -euo pipefail
           export XDG_STATE_HOME="$RUNNER_TEMP/ol-state" PYTHONPATH=src
-          proj="$RUNNER_TEMP/olproj"; mkdir -p "$proj"
           python3 tests/mock_overleaf.py 8973 "version A" & MOCK=$!
           sleep 1
-          python3 -m latexdiff_viewer.cli link --project "$proj" \
+          # No folder involved: link registers the project under its title.
+          python3 -m latexdiff_viewer.cli link \
             "http://127.0.0.1:8973/read/tok#ccbb9b" | tee "$RUNNER_TEMP/l1.json"
-          python3 -c 'import json;d=json.load(open("'"$RUNNER_TEMP"'/l1.json"));assert d["ok"] and d["id"]=="s1", d'
+          python3 -c 'import json;d=json.load(open("'"$RUNNER_TEMP"'/l1.json"));assert d["ok"] and d["id"]=="s1" and d["project"]=="Mock_Paper", d'
           kill $MOCK; wait $MOCK 2>/dev/null || true
           python3 tests/mock_overleaf.py 8973 "version B" & MOCK=$!
           sleep 1
-          python3 -m latexdiff_viewer.cli pull --project "$proj" | tee "$RUNNER_TEMP/l2.json"
+          python3 -m latexdiff_viewer.cli pull --project Mock_Paper | tee "$RUNNER_TEMP/l2.json"
           python3 -c 'import json;d=json.load(open("'"$RUNNER_TEMP"'/l2.json"));assert d["ok"] and d["id"]=="s2" and not d.get("unchanged"), d'
           kill $MOCK 2>/dev/null || true
           echo "overleaf mock OK"

@@ -168,10 +168,14 @@ their side. Secret gists are unlisted and off your profile, but **anyone with
 the link can read the diff** — don't share embargoed work this way.
 
 **Overleaf.**
-- Any plan: `ldv link <read-only share link>` then `ldv pull` after edits —
-  each pull that changed something becomes a save. (This uses the same
-  endpoints your browser does; if Overleaf changes them, download the zip via
-  Menu → Download → Source and run `ldv save --from project.zip`.)
+- Any plan: `ldv link "<read-only share link>"` — run it from anywhere; no
+  local folder is involved. The project registers under its Overleaf title
+  (`--name` to override; `ldv projects` lists them), and `ldv pull` /
+  `ldv diff` find it from any directory — `--project <name>` picks one when
+  you have several. Each pull that changed something becomes a save. (This
+  uses the same endpoints your browser does; if Overleaf changes them,
+  download the zip via Menu → Download → Source and run
+  `ldv save --from project.zip`.)
 - Premium (git bridge): `ldv link --git <project-id>` clones the project's
   git history as the timeline; `ldv pull` updates it. Dates and Overleaf
   version labels work as `ldv diff` points; label milestones in Overleaf's

@@ -39,21 +39,85 @@ SKIP_SUFFIXES = (
 
 
 # ---------------------------------------------------------------------------
-# State dir
+# State dir + project keys
+#
+# A "project" is addressed internally by a key: either a folder path (local
+# projects — where you run `ldv save` matters) or "ol:<overleaf-project-id>"
+# (linked projects — where you run ldv doesn't matter at all). Users address
+# projects by name or path; resolve_project() maps that to a key.
 # ---------------------------------------------------------------------------
+
+OL_PREFIX = "ol:"
+
 
 def state_root() -> str:
     base = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
     return os.path.join(base, "ldv")
 
 
-def project_id(project_dir: str) -> str:
-    real = os.path.realpath(os.path.abspath(project_dir))
-    return hashlib.sha1(real.encode("utf-8")).hexdigest()[:12]
+def project_id(project: str) -> str:
+    if not project.startswith(OL_PREFIX):
+        project = os.path.realpath(os.path.abspath(project))
+    return hashlib.sha1(project.encode("utf-8")).hexdigest()[:12]
 
 
-def project_state_dir(project_dir: str) -> str:
-    return os.path.join(state_root(), project_id(project_dir))
+def project_state_dir(project: str) -> str:
+    return os.path.join(state_root(), project_id(project))
+
+
+def projects() -> list[dict]:
+    """Every project with state, from the state dirs themselves (no index
+    file to fall out of sync): [{name, key, origin, dir}]."""
+    out = []
+    try:
+        entries = sorted(os.listdir(state_root()))
+    except OSError:
+        return []
+    for d in entries:
+        sd = os.path.join(state_root(), d)
+        try:
+            with open(os.path.join(sd, "state.json"), encoding="utf-8") as fh:
+                st = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        out.append({"name": st.get("name"), "key": st.get("key"),
+                    "origin": st.get("origin") or {}, "dir": sd})
+    return out
+
+
+def resolve_project(token: str | None) -> str:
+    """Map user input (nothing, a project name, or a folder) to a key.
+
+    No token: the cwd's timeline if it has one; else the only known project;
+    else the cwd (so a first `ldv save` just works). A token is tried as a
+    registered name first, then as a folder."""
+    if token:
+        for p in projects():
+            if p["name"] == token and p["key"]:
+                return p["key"]
+        if os.path.isdir(token):
+            return os.path.abspath(token)
+        known = ", ".join(sorted(p["name"] for p in projects() if p["name"])) \
+            or "none yet"
+        raise ValueError(f"no project named {token!r} (known: {known})")
+    cwd = os.getcwd()
+    if os.path.isdir(os.path.join(shadow_root(cwd), ".git")):
+        return cwd
+    known = [p for p in projects() if p["key"]]
+    if len(known) == 1:
+        return known[0]["key"]
+    if not known:
+        return cwd
+    names = ", ".join(sorted(p["name"] or p["key"] for p in known))
+    raise ValueError(f"several projects known — pass --project <name>: {names}")
+
+
+def project_name(project: str) -> str:
+    name = load_state(project).get("name")
+    if name:
+        return name
+    return "overleaf" if project.startswith(OL_PREFIX) \
+        else os.path.basename(project.rstrip("/"))
 
 
 def shadow_root(project_dir: str) -> str:
@@ -163,7 +227,11 @@ def save(project_dir: str, message: str | None = None,
          src: str | None = None) -> dict:
     """Snapshot `src` (default: the project folder; a folder or a source zip)
     as the next save. No-op if nothing changed since the last save."""
-    project_dir = os.path.abspath(project_dir)
+    if not project_dir.startswith(OL_PREFIX):
+        project_dir = os.path.abspath(project_dir)
+    elif src is None:
+        return {"ok": False, "error": "linked project has no local folder — "
+                                      "use `ldv pull` or `ldv save --from <zip>`"}
     repo = ensure_shadow(project_dir)
     tmp = None
     try:
@@ -191,6 +259,8 @@ def save(project_dir: str, message: str | None = None,
 
         st = load_state(project_dir)
         st.setdefault("origin", {"kind": "folder", "path": project_dir})
+        st["key"] = project_dir
+        st.setdefault("name", project_name(project_dir))
         st["saves"] = seq
         st["last_save"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
         write_state(project_dir, st)

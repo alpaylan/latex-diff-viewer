@@ -213,28 +213,65 @@ def cmd_serve(args) -> int:
     return 0
 
 
+def _resolve_project(token: str | None) -> str | None:
+    """User's --project (name or folder, or nothing) -> project key.
+    Prints the error JSON and returns None when it can't be resolved."""
+    from . import workspace
+    try:
+        return workspace.resolve_project(token)
+    except ValueError as e:
+        print(json.dumps({"ok": False, "error": str(e)}))
+        return None
+
+
 def cmd_save(args) -> int:
     from . import workspace
-    origin = workspace.load_state(args.project).get("origin") or {}
-    if origin.get("kind") == "git-bridge":
-        print(json.dumps({"ok": False, "error":
-                          "linked to the Overleaf git bridge — use `ldv pull`"}))
+    # save is folder-centric: bare `ldv save` snapshots the cwd even when
+    # linked projects exist; names only matter with an explicit --project.
+    project = _resolve_project(args.project) if args.project else os.getcwd()
+    if not project:
         return 2
-    res = workspace.save(args.project, message=args.message, src=args.src)
+    origin = workspace.load_state(project).get("origin") or {}
+    if origin.get("kind") == "git-bridge" or \
+            (origin.get("kind") == "read-link" and not args.src):
+        print(json.dumps({"ok": False, "error":
+                          "linked to Overleaf — use `ldv pull` "
+                          "(or `ldv save --from <zip>`)"}))
+        return 2
+    res = workspace.save(project, message=args.message, src=args.src)
     print(json.dumps(res))
     return 0 if res.get("ok") else 1
 
 
 def cmd_list(args) -> int:
     from . import workspace
-    entries = workspace.timeline(args.project)
+    project = _resolve_project(args.project)
+    if not project:
+        return 2
+    entries = workspace.timeline(project)
     if args.json:
-        print(json.dumps({"ok": True, "saves": entries}))
+        print(json.dumps({"ok": True, "project": workspace.project_name(project),
+                          "saves": entries}))
     elif not entries:
-        print("no saves yet — run `ldv save` in the project folder")
+        print("no saves yet — run `ldv save` (or `ldv link <read-url>`)")
     else:
         for e in entries:
             print(f"{e['id']:>6}  {e['date']}  {e['message']}")
+    return 0
+
+
+def cmd_projects(args) -> int:
+    from . import workspace
+    entries = workspace.projects()
+    if args.json:
+        print(json.dumps({"ok": True, "projects": entries}))
+    elif not entries:
+        print("no projects yet — `ldv save` in a folder or `ldv link <read-url>`")
+    else:
+        for p in entries:
+            origin = p["origin"]
+            where = origin.get("url") or origin.get("path") or p["key"] or "?"
+            print(f"{p['name'] or '?':24}  {origin.get('kind', 'folder'):10}  {where}")
     return 0
 
 
@@ -254,7 +291,10 @@ def _safe_name(token: str) -> str:
 
 def cmd_diff(args) -> int:
     from . import workspace
-    repo = _shadow_or_error(args.project)
+    project = _resolve_project(args.project)
+    if not project:
+        return 2
+    repo = _shadow_or_error(project)
     if not repo:
         return 2
     try:
@@ -265,11 +305,11 @@ def cmd_diff(args) -> int:
         return 2
     if args.share:
         from . import share
-        res = share.share_diff(args.project, a, b, on_line=stderr_sink)
+        res = share.share_diff(project, a, b, on_line=stderr_sink)
         print(json.dumps(res))
         return 0 if res.get("ok") else 1
     cfg = _config.load(repo)
-    out = args.out or os.path.join(workspace.project_state_dir(args.project),
+    out = args.out or os.path.join(workspace.project_state_dir(project),
                                    "out", f"diff-{_safe_name(a)}-{_safe_name(b)}.pdf")
     res = core.build_diff(cfg, a, b, out, on_line=stderr_sink)
     print(json.dumps({"ok": res.ok, "rc": res.rc, "pdf": res.out_pdf,
@@ -280,21 +320,27 @@ def cmd_diff(args) -> int:
 
 def cmd_link(args) -> int:
     from . import overleaf
-    res = overleaf.link(args.project, url=args.url, git_url=args.git)
+    res = overleaf.link(url=args.url, git_url=args.git, name=args.name)
     print(json.dumps(res))
     return 0 if res.get("ok") else 1
 
 
 def cmd_pull(args) -> int:
     from . import overleaf
-    res = overleaf.pull(args.project)
+    project = _resolve_project(args.project)
+    if not project:
+        return 2
+    res = overleaf.pull(project)
     print(json.dumps(res))
     return 0 if res.get("ok") else 1
 
 
 def cmd_view(args) -> int:
-    from . import server, workspace
-    repo = _shadow_or_error(args.project)
+    from . import server
+    project = _resolve_project(args.project)
+    if not project:
+        return 2
+    repo = _shadow_or_error(project)
     if not repo:
         return 2
     server.configure(_config.load(repo))
@@ -349,9 +395,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--port", type=int, default=8765)
     s.set_defaults(func=cmd_serve)
 
+    project_help = "project name or folder (default: cwd's project, " \
+                   "or the only one known)"
+
     sv = sub.add_parser("save", help="snapshot the project into its save timeline")
-    sv.add_argument("--project", default=os.getcwd(),
-                    help="project folder (default: cwd)")
+    sv.add_argument("--project", default=None,
+                    help="project name or folder (default: cwd)")
     sv.add_argument("-m", "--message", default=None, help="save message")
     sv.add_argument("--from", dest="src", default=None, metavar="ZIP|DIR",
                     help="snapshot this source zip/folder instead of the "
@@ -359,41 +408,43 @@ def build_parser() -> argparse.ArgumentParser:
     sv.set_defaults(func=cmd_save)
 
     ls = sub.add_parser("list", help="list the project's saves")
-    ls.add_argument("--project", default=os.getcwd(),
-                    help="project folder (default: cwd)")
+    ls.add_argument("--project", default=None, help=project_help)
     ls.add_argument("--json", action="store_true", help="machine-readable output")
     ls.set_defaults(func=cmd_list)
+
+    pj = sub.add_parser("projects", help="list every known project")
+    pj.add_argument("--json", action="store_true", help="machine-readable output")
+    pj.set_defaults(func=cmd_projects)
 
     df = sub.add_parser("diff",
                         help="latexdiff PDF between two saves/dates/refs")
     df.add_argument("a", help="base: save id (s1), date (2026-07-01), or ref")
     df.add_argument("b", nargs="?", default=None,
                     help="compare point (default: the latest save)")
-    df.add_argument("--project", default=os.getcwd(),
-                    help="project folder (default: cwd)")
+    df.add_argument("--project", default=None, help=project_help)
     df.add_argument("-o", "--out", default=None, help="output PDF path")
     df.add_argument("--share", action="store_true",
                     help="publish to the project's share gist (secret, "
                          "anyone with the link can view) and print the link")
     df.set_defaults(func=cmd_diff)
 
-    lk = sub.add_parser("link", help="connect an Overleaf project as the origin")
+    lk = sub.add_parser("link",
+                        help="connect an Overleaf project (run from anywhere)")
     lk.add_argument("url", nargs="?", default=None,
-                    help="Overleaf read-only share link")
+                    help="Overleaf read-only share link (paste it whole — "
+                         "the #fragment matters)")
     lk.add_argument("--git", default=None, metavar="URL|PROJECT_ID",
                     help="premium: clone the Overleaf git bridge instead")
-    lk.add_argument("--project", default=os.getcwd(),
-                    help="project folder (default: cwd)")
+    lk.add_argument("--name", default=None,
+                    help="project name (default: the Overleaf project title)")
     lk.set_defaults(func=cmd_link)
 
     pl = sub.add_parser("pull", help="refresh saves from the linked Overleaf")
-    pl.add_argument("--project", default=os.getcwd(),
-                    help="project folder (default: cwd)")
+    pl.add_argument("--project", default=None, help=project_help)
     pl.set_defaults(func=cmd_pull)
 
     vw = sub.add_parser("view", help="browse saves in the local web viewer")
-    vw.add_argument("--project", default=os.getcwd(),
-                    help="project folder (default: cwd)")
+    vw.add_argument("--project", default=None, help=project_help)
     vw.add_argument("--host", default="127.0.0.1")
     vw.add_argument("--port", type=int, default=8765)
     vw.set_defaults(func=cmd_view)

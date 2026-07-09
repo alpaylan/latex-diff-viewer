@@ -57,8 +57,9 @@ def _find_pid(final_url: str, html: str) -> str | None:
     return None
 
 
-def fetch_zip(read_url: str, dest_zip: str, timeout: int = 120) -> None:
-    """Download the project source zip reachable through `read_url`."""
+def fetch_zip(read_url: str, dest_zip: str, timeout: int = 120) -> dict:
+    """Download the project source zip reachable through `read_url`;
+    returns {pid, name} (name from the zip's Content-Disposition)."""
     parts = urllib.parse.urlsplit(read_url)
     base = f"{parts.scheme}://{parts.netloc}"
     clean = urllib.parse.urlunsplit(
@@ -96,56 +97,88 @@ def fetch_zip(read_url: str, dest_zip: str, timeout: int = 120) -> None:
         raise RuntimeError(f"no project id behind {read_url}; {FALLBACK}")
     with op.open(f"{base}/project/{pid}/download/zip", timeout=timeout) as r:
         data = r.read()
+        disposition = r.headers.get("Content-Disposition") or ""
     if not data.startswith(b"PK"):
         raise RuntimeError(f"/project/{pid}/download/zip did not return a "
                            f"zip; {FALLBACK}")
     with open(dest_zip, "wb") as fh:
         fh.write(data)
+    # Overleaf names the zip after the project title — the natural name.
+    m = re.search(r'filename="?([^";]+?)(\.zip)?"?\s*(;|$)', disposition)
+    name = re.sub(r"[^\w. -]+", "", m.group(1)).strip() if m else ""
+    return {"pid": pid, "name": name or f"overleaf-{pid[:6]}"}
 
 
 # ---------------------------------------------------------------------------
 # link / pull
 # ---------------------------------------------------------------------------
 
-def link(project_dir: str, url: str | None = None,
-         git_url: str | None = None) -> dict:
-    """Record the project's Overleaf origin (and pull once)."""
-    st = workspace.load_state(project_dir)
+def _unique_name(want: str, key: str) -> str:
+    """`want`, unless another project already uses it."""
+    for p in workspace.projects():
+        if p["name"] == want and p["key"] not in (None, key):
+            return f"{want}-{key.removeprefix(workspace.OL_PREFIX)[:6]}"
+    return want
+
+
+def link(url: str | None = None, git_url: str | None = None,
+         name: str | None = None) -> dict:
+    """Connect an Overleaf project (from anywhere — no local folder involved).
+
+    The timeline is keyed on the Overleaf project id, so relinking the same
+    project finds the same saves, and every other command addresses it by
+    its name (from the project title, or --name)."""
     if git_url:
-        repo = workspace.shadow_root(project_dir)
-        if os.path.isdir(os.path.join(repo, ".git")):
-            return {"ok": False, "error":
-                    "this project already has a timeline; git-bridge linking "
-                    "needs a fresh one (remove "
-                    f"{workspace.project_state_dir(project_dir)} first)"}
         if re.fullmatch(_PID, git_url):
             git_url = f"https://git.overleaf.com/{git_url}"
-        os.makedirs(os.path.dirname(repo), exist_ok=True)
-        env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
-        try:
-            subprocess.check_output(["git", "clone", "-q", git_url, repo],
-                                    text=True, stderr=subprocess.STDOUT, env=env)
-        except subprocess.CalledProcessError as exc:
-            return {"ok": False, "error":
-                    f"clone failed ({exc.output.strip()}) — store an Overleaf "
-                    "git authentication token in your git credential helper "
-                    "first (see overleaf.com/learn Git integration)"}
+        m = re.search(rf"/({_PID})/?$", git_url)
+        if not m:
+            return {"ok": False, "error": f"no project id in {git_url!r}"}
+        key = f"{workspace.OL_PREFIX}{m.group(1)}"
+        repo = workspace.shadow_root(key)
+        if not os.path.isdir(os.path.join(repo, ".git")):
+            os.makedirs(os.path.dirname(repo), exist_ok=True)
+            env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+            try:
+                subprocess.check_output(["git", "clone", "-q", git_url, repo],
+                                        text=True, stderr=subprocess.STDOUT,
+                                        env=env)
+            except subprocess.CalledProcessError as exc:
+                return {"ok": False, "error":
+                        f"clone failed ({exc.output.strip()}) — store an "
+                        "Overleaf git authentication token in your git "
+                        "credential helper first (see overleaf.com/learn "
+                        "Git integration)"}
+        st = workspace.load_state(key)
+        st["key"] = key
         st["origin"] = {"kind": "git-bridge", "url": git_url}
-        workspace.write_state(project_dir, st)
-        return {"ok": True, "origin": st["origin"]}
+        st["name"] = _unique_name(name or st.get("name")
+                                  or f"overleaf-{m.group(1)[:6]}", key)
+        workspace.write_state(key, st)
+        return {"ok": True, "project": st["name"], "origin": st["origin"]}
 
     if not url:
         return {"ok": False, "error": "need a read link or --git URL"}
-    st["origin"] = {"kind": "read-link", "url": url}
-    workspace.write_state(project_dir, st)
-    res = pull(project_dir)
-    res["origin"] = st["origin"]
+    with tempfile.TemporaryDirectory(prefix="ldv-link-") as td:
+        z = os.path.join(td, "overleaf.zip")
+        try:
+            meta = fetch_zip(url, z)
+        except (OSError, RuntimeError) as exc:
+            return {"ok": False, "error": str(exc)}
+        key = f"{workspace.OL_PREFIX}{meta['pid']}"
+        st = workspace.load_state(key)
+        st["key"] = key
+        st["origin"] = {"kind": "read-link", "url": url}
+        st["name"] = _unique_name(name or st.get("name") or meta["name"], key)
+        workspace.write_state(key, st)
+        res = workspace.save(key, message="pull from Overleaf", src=z)
+    res.update(project=st["name"], origin=st["origin"])
     return res
 
 
-def pull(project_dir: str) -> dict:
+def pull(project: str) -> dict:
     """Refresh the timeline from the linked Overleaf origin."""
-    origin = workspace.load_state(project_dir).get("origin") or {}
+    origin = workspace.load_state(project).get("origin") or {}
     kind = origin.get("kind")
     if kind == "read-link":
         with tempfile.TemporaryDirectory(prefix="ldv-pull-") as td:
@@ -154,10 +187,10 @@ def pull(project_dir: str) -> dict:
                 fetch_zip(origin["url"], z)
             except (OSError, RuntimeError) as exc:
                 return {"ok": False, "error": str(exc)}
-            return workspace.save(project_dir, message="pull from Overleaf",
+            return workspace.save(project, message="pull from Overleaf",
                                   src=z)
     if kind == "git-bridge":
-        repo = workspace.shadow_root(project_dir)
+        repo = workspace.shadow_root(project)
         try:
             out = core.git(repo, "pull", "--ff-only", "-q", timeout=300)
         except subprocess.CalledProcessError as exc:

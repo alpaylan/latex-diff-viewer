@@ -134,7 +134,7 @@ def share_diff(project_dir: str, a: str, b: str, retain: int = 20,
         return {"ok": False, "id": res.get("id"),
                 "error": f"{res['pdf']} is over 10 MB — gist raw URLs won't "
                          "serve it; use `ldv diff -o` and send the PDF"}
-    _finish_store_dir(share_dir, share, os.path.basename(project_dir))
+    _finish_store_dir(share_dir, share, workspace.project_name(project_dir))
 
     _git(share_dir, "add", "-A")
     if _git(share_dir, "status", "--porcelain").strip():
