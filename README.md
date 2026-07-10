@@ -193,7 +193,11 @@ Overleaf diffs the same way. The main pattern that still breaks: ancient
 `.sty` files vendored inside the project shadowing the TeX Live versions —
 latexdiff's injected preamble can break against them (symptom in the log:
 `\ifx ... was incomplete` + `No pages of output`). Deleting the vendored
-copy usually fixes both the diff and the project.
+copy usually fixes both the diff and the project. Note that the diff is
+compiled inside the *second* argument's tree — old saves are immutable, so
+after fixing a project file, diff *toward* a post-fix save
+(`ldv diff s1 s6`, not `ldv diff s6 s1`); diffs ending at a broken save
+will keep failing.
 
 ---
 
