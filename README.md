@@ -186,13 +186,14 @@ Building diffs locally still needs the TeX toolchain (`git-latexdiff`,
 `latexmk`); `save`/`list`/`pull`/`--share` of an existing diff do not.
 
 **If the diff fails to build**: `ldv diff` prints the `[latex]` error lines and
-saves the full compile log next to the output PDF. Two patterns seen in the
-wild: a project that compiles on Overleaf *with* errors (Overleaf tolerates
-them silently — fix the errors, or they may turn fatal in the diff build), and
-ancient `.sty` files vendored inside the project shadowing the TeX Live
-versions — latexdiff's injected preamble can break against them (symptom in
-the log: `\ifx ... was incomplete` + `No pages of output`). Deleting the
-vendored copy usually fixes both the diff and the project.
+saves the full compile log next to the output PDF. The diff compiles with
+Overleaf-style tolerance (recoverable errors are pushed through; it only
+fails when no PDF comes out), so a project that "renders with errors" on
+Overleaf diffs the same way. The main pattern that still breaks: ancient
+`.sty` files vendored inside the project shadowing the TeX Live versions —
+latexdiff's injected preamble can break against them (symptom in the log:
+`\ifx ... was incomplete` + `No pages of output`). Deleting the vendored
+copy usually fixes both the diff and the project.
 
 ---
 

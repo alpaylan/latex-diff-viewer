@@ -369,6 +369,10 @@ def build_diff(cfg: _config.Config, old: str, new: str, out_pdf: str,
         "--ln-untracked",                       # pull in gitignored assets
         *cfg.latexdiff_options,
         "--filter", f"python3 {BOOKMARK_FILTER} {cfg.main}",
+        # Overleaf-style tolerance: push through recoverable errors instead of
+        # relying on errorstop+EOF behavior; with --ignore-latex-errors the
+        # run still fails (rc!=0) when no PDF ships, which is what ok keys on.
+        "--latexopt", "-f -interaction=nonstopmode",
         "--ignore-latex-errors",
         "--no-view",
         "--quiet",
