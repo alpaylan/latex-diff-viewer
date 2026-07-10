@@ -11,6 +11,10 @@
 > grant-flow mock in `tests/mock_overleaf.py` run by CI. Share links render
 > in the browser (user-confirmed).
 > Deferred: repo share media, `link --git` against a real premium account,
+> **auto-retry with opaque tables** (on a failed diff, retry once with
+> `PICTUREENV=(?:picture|DIFnomarkup|tabular|table)` and tag the result —
+> table markup is the most TeX-version-sensitive breakage; hit on a real
+> thesis 2026-07-10, workaround documented in README),
 > and **macro pre-expansion**: latexdiff can't mark up preamble changes, so
 > redefining a macro (e.g. `\newcommand{\db}{Turso}` → `{Limbo}`) silently
 > changes the rendered document with `changed_pages: 0` — hit on a real

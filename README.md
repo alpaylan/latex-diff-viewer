@@ -199,6 +199,18 @@ after fixing a project file, diff *toward* a post-fix save
 (`ldv diff s1 s6`, not `ldv diff s6 s1`); diffs ending at a broken save
 will keep failing.
 
+A second pattern: edits in or around **tables** (symptom: `Misplaced
+\noalign` from `\toprule`/`\midrule`, then a cascade of `Missing \cr` /
+`Missing }`) — latexdiff's markup interleaves badly with tabular material,
+and how fatally depends on your TeX version. The fix is telling latexdiff
+to treat tables as opaque blocks (whole-table changes still show, edits
+inside tables aren't highlighted): add a `difftool.toml` at the project
+root — on Overleaf too, it rides along in pulls — with
+
+```toml
+latexdiff_options = ["--config", "PICTUREENV=(?:picture|DIFnomarkup|tabular|table)"]
+```
+
 ---
 
 ## Alternatives
