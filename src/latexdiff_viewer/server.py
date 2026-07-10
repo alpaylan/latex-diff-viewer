@@ -36,6 +36,7 @@ INDEX_HTML = os.path.join(HERE, "index.html")
 # Set in configure(); the resolved project config + the PDF cache directory.
 CFG: _config.Config
 OUT_DIR: str
+DISPLAY_NAME: str | None = None
 
 # ---------------------------------------------------------------------------
 # Job state
@@ -47,9 +48,13 @@ JOBS: dict[str, dict] = {}          # id -> job dict
 BUILD_QUEUE: "queue.Queue[str]" = queue.Queue()
 
 
-def configure(cfg: _config.Config, out_dir: str | None = None) -> None:
-    global CFG, OUT_DIR
+def configure(cfg: _config.Config, out_dir: str | None = None,
+              name: str | None = None) -> None:
+    global CFG, OUT_DIR, DISPLAY_NAME
     CFG = cfg
+    # Shown in the viewer header; shadow repos are all literally named
+    # "repo", so ldv view passes the project's registered name instead.
+    DISPLAY_NAME = name
     # Cache generated PDFs under the project's build dir when it has one, else a
     # dedicated dot-dir so we never scatter files in the repo root.
     default_cache = os.path.join(cfg.repo_root, cfg.build_dir or ".latexdiff", "diffs")
@@ -320,7 +325,8 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):
             self._serve_index()
         elif path == "/api/meta":
-            self._send_json({"main": CFG.main, "repo": os.path.basename(CFG.repo_root),
+            self._send_json({"main": CFG.main,
+                             "repo": DISPLAY_NAME or os.path.basename(CFG.repo_root),
                              "github": core.github_remote(CFG.repo_root),
                              "static": False})
         elif path == "/api/commits":

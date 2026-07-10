@@ -410,14 +410,14 @@ def cmd_doctor(args) -> int:
 
 
 def cmd_view(args) -> int:
-    from . import server
+    from . import server, workspace
     project = _resolve_project(args.project)
     if not project:
         return 2
     repo = _shadow_or_error(project)
     if not repo:
         return 2
-    server.configure(_config.load(repo))
+    server.configure(_config.load(repo), name=workspace.project_name(project))
     server.run_server(args.host, args.port)
     return 0
 
