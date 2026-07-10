@@ -248,13 +248,54 @@ def _run_streamed(cmd: list[str], cwd: str, on_line: LineSink | None = None,
 class BuildResult:
     def __init__(self, ok: bool, rc: int, out_pdf: str,
                  log: list[str], changes: list[dict] | None = None,
-                 elapsed: float = 0.0):
+                 elapsed: float = 0.0, error_log: str | None = None):
         self.ok = ok
         self.rc = rc
         self.out_pdf = out_pdf
         self.log = log
         self.changes = changes or []
         self.elapsed = elapsed
+        self.error_log = error_log     # salvaged LaTeX .log path, on failure
+
+
+def _salvage_log(cfg: _config.Config, prefix: str, out_pdf: str,
+                 on_line: LineSink | None) -> str | None:
+    """After a failed diff compile, rescue the LaTeX .log before the work
+    tree is deleted (git-latexdiff says 'please examine' — but we clean up),
+    and surface its error lines. Returns the saved log's path."""
+    logs = []
+    if cfg.build_dir:
+        p = os.path.join(cfg.build_path, f"{cfg.jobname}.log")
+        if os.path.exists(p):
+            logs.append(p)
+    for root, _dirs, files in os.walk(prefix, followlinks=True):
+        logs += [os.path.join(root, f) for f in files if f.endswith(".log")]
+    if not logs:
+        return None
+    # latexmk's wrapper log can be newer than the engine's — prefer the
+    # {jobname}.log (the one with the actual "!" error lines), then mtime.
+    job = f"{cfg.jobname}.log"
+    newest = max(logs, key=lambda p: (os.path.basename(p) == job,
+                                      os.path.getmtime(p)))
+    dest = os.path.splitext(out_pdf)[0] + ".log"
+    try:
+        shutil.copy2(newest, dest)
+    except OSError:
+        return None
+    if on_line:
+        try:
+            with open(dest, encoding="utf-8", errors="replace") as fh:
+                lines = fh.read().splitlines()
+        except OSError:
+            lines = []
+        shown = 0
+        for i, ln in enumerate(lines):
+            if ln.startswith("!") and shown < 40:
+                for ctx in lines[i:i + 3]:
+                    on_line(f"[latex] {ctx}")
+                    shown += 1
+        on_line(f"[latex] full log: {dest}")
+    return dest
 
 
 def _harvest_diff(cfg: _config.Config, prefix: str) -> tuple[str | None, str | None]:
@@ -345,6 +386,7 @@ def build_diff(cfg: _config.Config, old: str, new: str, out_pdf: str,
         if src_pdf and os.path.exists(src_pdf):
             shutil.copy2(src_pdf, out_pdf)
         changes = parse_changes(aux) if (aux and os.path.exists(out_pdf)) else []
+        error_log = None if rc == 0 else _salvage_log(cfg, prefix, out_pdf, on_line)
     finally:
         shutil.rmtree(prefix, ignore_errors=True)
         if cfg.build_dir:  # tidy artifacts the symlink left in the real build dir
@@ -354,7 +396,7 @@ def build_diff(cfg: _config.Config, old: str, new: str, out_pdf: str,
                 except OSError:
                     pass
     return BuildResult(os.path.exists(out_pdf), rc, out_pdf, log_lines, changes,
-                       round(time.time() - start, 1))
+                       round(time.time() - start, 1), error_log)
 
 
 def _find_output_pdf(cfg: _config.Config, wt: str, start: float) -> str | None:

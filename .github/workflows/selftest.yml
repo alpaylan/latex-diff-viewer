@@ -94,6 +94,9 @@ jobs:
           run diff s2 s3 -o /w/out/broken.pdf | tee "$RUNNER_TEMP/bd.json" || true
           python3 -c 'import json;d=json.load(open("'"$RUNNER_TEMP"'/bd.json"));assert not d["ok"] and d["rc"] != 0, d'
           if [ -s "$work/out/broken.pdf" ]; then echo "broken diff left a PDF"; exit 1; fi
+          # ...and must salvage the LaTeX .log for diagnosis.
+          test -s "$work/out/broken.log"
+          grep -q "^!" "$work/out/broken.log"
           echo "failure path OK"
 
       # The Overleaf read-link flow against the grant-interstitial mock —

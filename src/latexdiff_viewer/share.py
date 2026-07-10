@@ -15,6 +15,7 @@ profile, but anyone with the link can read — that trade-off is the point.
 
 from __future__ import annotations
 
+import glob
 import json
 import os
 import subprocess
@@ -97,8 +98,8 @@ def _ensure_clone(project_dir: str, share: dict) -> str:
 def _finish_store_dir(share_dir: str, share: dict, project_name: str) -> None:
     """Adapt the store layout to gist hosting: gists can't serve index.html or
     honour .nojekyll, and the gist page itself should point at the viewer."""
-    for name in ("index.html", ".nojekyll"):
-        p = os.path.join(share_dir, name)
+    for p in [os.path.join(share_dir, n) for n in ("index.html", ".nojekyll")] \
+            + glob.glob(os.path.join(share_dir, "*.log")):
         if os.path.exists(p):
             os.remove(p)
     mp = store.manifest_path(share_dir)

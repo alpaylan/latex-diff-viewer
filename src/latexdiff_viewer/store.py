@@ -115,7 +115,10 @@ def add_diff(cfg: _config.Config, store_dir: str, base_ref: str, head_ref: str,
     res = core.build_diff(cfg, o["hash"], n["hash"],
                           os.path.join(store_dir, name), on_line=on_line)
     if not res.ok:
-        return {"ok": False, "error": "diff build produced no PDF", "id": diff_id}
+        out = {"ok": False, "error": "diff build produced no PDF", "id": diff_id}
+        if res.error_log:
+            out["log"] = res.error_log
+        return out
 
     entry = {
         "id": diff_id, "kind": "diff", "status": "done", "pdf": name,

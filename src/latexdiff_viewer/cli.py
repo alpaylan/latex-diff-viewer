@@ -324,10 +324,12 @@ def cmd_diff(args) -> int:
               "changed_pages": len(res.changes), "changes": res.changes}
     if not res.ok:
         result["error"] = ("the diff document failed to compile — see the "
-                           "build log above (common: bibliography or "
+                           "[latex] lines above (common: bibliography or "
                            "shell-escape needs, or latexdiff markup breaking "
                            "on complex macros; latexdiff_options in "
                            "difftool.toml can help)")
+        if res.error_log:
+            result["log"] = res.error_log
     print(json.dumps(result))
     return 0 if res.ok else 1
 
