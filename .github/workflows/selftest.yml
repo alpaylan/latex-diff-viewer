@@ -85,6 +85,16 @@ jobs:
           python3 -c 'import json;d=json.load(open("'"$RUNNER_TEMP"'/sd.json"));assert d["ok"], d;assert d["changed_pages"]>0, d'
           test -s "$work/out/save-diff.pdf"
           echo "personal flow OK"
+          # Regression: a failed diff compile must not report ok — a committed
+          # decoy PDF in the tree used to be harvested as "the diff"
+          # (ok=true, 0 changed pages) and pushed to shares.
+          printf '%%PDF-1.4 decoy\n%%%%EOF\n' > "$work/decoy.pdf"
+          sed -i 's/version three/\\input{does-not-exist}/' "$work/main.tex"
+          run save -m "broken"
+          run diff s2 s3 -o /w/out/broken.pdf | tee "$RUNNER_TEMP/bd.json" || true
+          python3 -c 'import json;d=json.load(open("'"$RUNNER_TEMP"'/bd.json"));assert not d["ok"] and d["rc"] != 0, d'
+          if [ -s "$work/out/broken.pdf" ]; then echo "broken diff left a PDF"; exit 1; fi
+          echo "failure path OK"
 
       # The Overleaf read-link flow against the grant-interstitial mock —
       # save/pull need no TeX, so this runs on the bare runner.

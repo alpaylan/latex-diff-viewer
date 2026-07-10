@@ -319,9 +319,16 @@ def cmd_diff(args) -> int:
     out = args.out or os.path.join(workspace.project_state_dir(project),
                                    "out", f"diff-{_safe_name(a)}-{_safe_name(b)}.pdf")
     res = core.build_diff(cfg, a, b, out, on_line=stderr_sink)
-    print(json.dumps({"ok": res.ok, "rc": res.rc, "pdf": res.out_pdf,
-                      "old": a, "new": b, "elapsed": res.elapsed,
-                      "changed_pages": len(res.changes), "changes": res.changes}))
+    result = {"ok": res.ok, "rc": res.rc, "pdf": res.out_pdf,
+              "old": a, "new": b, "elapsed": res.elapsed,
+              "changed_pages": len(res.changes), "changes": res.changes}
+    if not res.ok:
+        result["error"] = ("the diff document failed to compile — see the "
+                           "build log above (common: bibliography or "
+                           "shell-escape needs, or latexdiff markup breaking "
+                           "on complex macros; latexdiff_options in "
+                           "difftool.toml can help)")
+    print(json.dumps(result))
     return 0 if res.ok else 1
 
 

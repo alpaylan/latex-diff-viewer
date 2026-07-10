@@ -338,7 +338,10 @@ def build_diff(cfg: _config.Config, old: str, new: str, out_pdf: str,
     start = time.time()
     try:
         rc, log_lines = _run_streamed(cmd, cfg.repo_root, on_line, timeout)
-        src_pdf, aux = _harvest_diff(cfg, prefix)
+        # Harvest only on success: a checkout can contain committed PDFs
+        # (stale builds, figures), so after a failed compile the walk would
+        # happily return one of those as "the diff" (ok=true, 0 changes).
+        src_pdf, aux = _harvest_diff(cfg, prefix) if rc == 0 else (None, None)
         if src_pdf and os.path.exists(src_pdf):
             shutil.copy2(src_pdf, out_pdf)
         changes = parse_changes(aux) if (aux and os.path.exists(out_pdf)) else []
